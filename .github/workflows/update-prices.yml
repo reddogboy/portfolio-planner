@@ -2,9 +2,7 @@ name: 🔄 Daily Price Auto-Update (7:00 AM BKK)
 on:
   schedule:
     - cron: '0 0 * * *'
-
   workflow_dispatch:
-
 permissions:
   contents: write
 jobs:
@@ -25,26 +23,25 @@ jobs:
             const symbols = ['AAPL', 'TSLA', 'MSFT', 'VOO', 'QQQ'];
             let resultData = { prices: {}, fxRate: 35.0, lastUpdated: new Date().toISOString() };
             try {
-            console.log("Fetching THB=X...");
+            console.log('Fetching THB=X...');
             const fxRes = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/THB=X');
             if (fxRes.ok) {
             const fxData = await fxRes.json();
             resultData.fxRate = fxData.chart.result[0].meta.regularMarketPrice;
             }
-
             for (const sym of symbols) {
-            console.log(⁠Fetching ${sym}...⁠);
-            const res = await fetch(⁠https://query1.finance.yahoo.com/v8/finance/chart/${sym}⁠);
+            console.log('Fetching ' + sym + '...');
+            const res = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/' + sym);
             if (res.ok) {
             const data = await res.json();
             resultData.prices[sym] = data.chart.result[0].meta.regularMarketPrice;
             }
             }
             fs.writeFileSync('./prices.json', JSON.stringify(resultData, null, 2));
-            console.log("✅ Successfully saved prices.json!");
+            console.log('✅ Successfully saved prices.json!');
             } catch (error) {
-            console.error("❌ Error fetching prices:", error);
-            process.exit(1); // บังคับให้ Action fail ถ้ามีปัญหา
+            console.error('❌ Error fetching prices:', error);
+            process.exit(1);
             }
       - name: 💾 Commit and Push changes
         run: |
