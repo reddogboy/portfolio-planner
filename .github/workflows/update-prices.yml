@@ -20,7 +20,7 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const symbols = ['AAPL', 'TSLA', 'MSFT', 'VOO', 'QQQ'];
+            const symbols = ['AAPL', 'AMZN', 'GOOGL', 'TSLA', 'MSFT', 'VOO', 'QQQM', 'TSM', 'COST', 'V'];
             let resultData = { prices: {}, fxRate: 35.0, lastUpdated: new Date().toISOString() };
             try {
             console.log('Fetching THB=X...');
