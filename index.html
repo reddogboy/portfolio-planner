@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Portfolio Planner | By Jake the Red Dog</title>
+    <title>Portfolio Tracker | By Jake the Red Dog</title>
     
     <!-- 1. Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -43,7 +43,7 @@
         const { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Legend } = window.Recharts;
 
         // =========================================================================
-        // 🔥 FIREBASE CONFIGURATION (รหัสของคุณ)
+        // 🔥 FIREBASE CONFIGURATION
         // =========================================================================
         const firebaseConfig = {
             apiKey: "AIzaSyAi0LJXM9eiyDeBALit1zmMbvaK9uO_WR8",
@@ -98,6 +98,7 @@
             const [dcaCurrency, setDcaCurrency] = useState('THB');
 
             const [graphTimeframe, setGraphTimeframe] = useState('ALL'); 
+            const [displayCurrency, setDisplayCurrency] = useState('THB'); // 🌟 NEW: ควบคุมสกุลเงินที่โชว์บนหัวเว็บ
 
             // --- 4. Form States (Smart Form) ---
             const [editId, setEditId] = useState(null);
@@ -128,7 +129,6 @@
                     const unsubscribe = docRef.onSnapshot(doc => {
                         if (doc.exists) {
                             const data = doc.data();
-                            // Data Migration
                             if (data.portfolios) {
                                 setPortfolios(data.portfolios);
                                 if (!activePortId) setActivePortId(Object.keys(data.portfolios)[0]);
@@ -175,50 +175,67 @@
             };
 
             // ---------------------------------------------------------
-            // 🌐 MARKET DATA & SNAPSHOT SYSTEM
+            // 🌐 MARKET DATA & SNAPSHOT SYSTEM (🌟 HYBRID FETCHING)
             // ---------------------------------------------------------
             const fetchMarketData = useCallback(async () => {
                 if (!activePortId || assets.length === 0) return;
                 setIsLoading(true);
                 let newPrices = { ...prices };
                 let currentFx = fxRate;
+                let localFetchedPrices = {};
 
+                // 1. อ่าน Cache จาก prices.json ที่บอทดึงไว้ตอน 7 โมงเช้า
                 try {
                     const localRes = await fetch('./prices.json');
                     if (localRes.ok) {
                         const localData = await localRes.json();
-                        setPrices({ ...newPrices, ...localData.prices });
-                        setFxRate(localData.fxRate || 35.00);
-                        setIsLoading(false);
-                        return; 
+                        localFetchedPrices = localData.prices || {};
+                        currentFx = localData.fxRate || 35.00;
                     }
-                } catch (e) { /* fallback */ }
+                } catch (e) { console.log("Cache missed, using live proxy."); }
 
-                try {
-                    const proxyUrl = 'https://corsproxy.io/?';
-                    const fxUrl = encodeURIComponent('https://query1.finance.yahoo.com/v8/finance/chart/THB=X');
-                    const fxRes = await fetch(proxyUrl + fxUrl);
-                    if (fxRes.ok) {
-                        const fxData = await fxRes.json();
-                        currentFx = fxData.chart.result[0].meta.regularMarketPrice;
-                        setFxRate(currentFx);
+                // 2. เช็คว่าค่าเงิน หรือ หุ้นบางตัว หายไปจาก cache หรือไม่
+                const proxyUrl = 'https://corsproxy.io/?';
+                if (!localFetchedPrices['AAPL']) { 
+                    // ถ้าไฟล์ json พัง ให้ดึงค่าเงินสดใหม่
+                    try {
+                        const fxUrl = encodeURIComponent('https://query1.finance.yahoo.com/v8/finance/chart/THB=X');
+                        const fxRes = await fetch(proxyUrl + fxUrl);
+                        if (fxRes.ok) {
+                            const fxData = await fxRes.json();
+                            currentFx = fxData.chart.result[0].meta.regularMarketPrice;
+                        }
+                    } catch (error) {}
+                }
+
+                // 3. จัดการดึงราคาหุ้นทีละตัว (ใช้ Cache ถ้ามี, ถ้าไม่มีให้ดึงสด)
+                for (let item of assets) {
+                    const ticker = item.symbol.toUpperCase();
+                    if (item.currency === 'THB' && !ticker.includes('.')) { 
+                        newPrices[ticker] = 1; // CASH THB
+                        continue; 
                     }
-
-                    for (let item of assets) {
-                        if (item.currency === 'THB' && !item.symbol.includes('.')) { newPrices[item.symbol] = 1; continue; }
+                    
+                    if (localFetchedPrices[ticker]) {
+                        // มีใน Cache
+                        newPrices[ticker] = localFetchedPrices[ticker];
+                    } else {
+                        // 🌟 ไม่มีใน Cache (เช่น หุ้นใหม่) -> ดึงสด (Proxy)
                         try {
-                            const ticker = item.symbol.toUpperCase();
                             const targetUrl = encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}`);
                             const response = await fetch(proxyUrl + targetUrl);
                             if (response.ok) {
                                 const data = await response.json();
                                 newPrices[ticker] = data.chart.result[0].meta.regularMarketPrice;
                             }
-                        } catch (err) {}
+                        } catch (err) {
+                            console.error(`Failed to live-fetch ${ticker}`);
+                        }
                     }
-                } catch (error) {}
+                }
                 
                 setPrices(newPrices);
+                setFxRate(currentFx);
                 setIsLoading(false);
             }, [assets, activePortId, fxRate]);
 
@@ -494,11 +511,22 @@
                             </p>
                         </div>
 
-                        <div className="z-10 text-left md:text-right w-full md:w-auto bg-slate-900/50 p-4 rounded-2xl md:bg-transparent md:p-0">
-                            <p className="text-xs text-slate-400 font-bold mb-1">มูลค่าพอร์ตปัจจุบัน (THB)</p>
-                            <h2 className="text-3xl md:text-5xl font-black text-white tracking-tight">{formatMoney(analysis.currentTotalValueTHB, 'THB')}</h2>
+                        {/* 🌟 NEW: สลับสกุลเงินได้อิสระ */}
+                        <div className="z-10 text-left md:text-right w-full md:w-auto bg-slate-900/50 p-4 rounded-2xl md:bg-transparent md:p-0 relative">
+                            <div className="flex justify-between md:justify-end items-center mb-1 gap-4">
+                                <p className="text-xs text-slate-400 font-bold">มูลค่าพอร์ตปัจจุบัน</p>
+                                <div className="flex bg-slate-800 p-0.5 rounded-lg border border-slate-700">
+                                    <button onClick={() => setDisplayCurrency('THB')} className={`px-2 py-1 text-[10px] font-bold rounded-md transition ${displayCurrency === 'THB' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}>THB</button>
+                                    <button onClick={() => setDisplayCurrency('USD')} className={`px-2 py-1 text-[10px] font-bold rounded-md transition ${displayCurrency === 'USD' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}>USD</button>
+                                </div>
+                            </div>
+                            
+                            <h2 className="text-3xl md:text-5xl font-black text-white tracking-tight">
+                                {formatMoney(displayCurrency === 'USD' ? analysis.currentTotalValueTHB / fxRate : analysis.currentTotalValueTHB, displayCurrency)}
+                            </h2>
                             <div className={`text-sm md:text-base font-bold mt-1 flex items-center gap-2 md:justify-end ${analysis.totalProfitLoss >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                {analysis.totalProfitLoss >= 0 ? '▲' : '▼'} {formatMoney(Math.abs(analysis.totalProfitLoss), 'THB')} 
+                                {analysis.totalProfitLoss >= 0 ? '▲' : '▼'} 
+                                {formatMoney(Math.abs(displayCurrency === 'USD' ? analysis.totalProfitLoss / fxRate : analysis.totalProfitLoss), displayCurrency)} 
                                 <span className={`px-2 py-0.5 rounded-md text-xs bg-slate-800 ${analysis.totalProfitLoss >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                                     {analysis.totalCostTHB > 0 ? formatPercent((analysis.totalProfitLoss/analysis.totalCostTHB)*100) : '0.00%'}
                                 </span>
