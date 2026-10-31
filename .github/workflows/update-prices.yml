@@ -1,11 +1,10 @@
 name: 🔄 Daily Price Auto-Update (7:00 AM BKK)
 on:
   schedule:
-# ตั้งเวลาให้ทำงานตอน 00:00 UTC (ซึ่งตรงกับเวลา 07:00 โมงเช้าในประเทศไทย)
     - cron: '0 0 * * *'
-อนุญาตให้กดปุ่มรันแบบ Manual ได้ด้วย (เผื่ออยากกดอัปเดตระหว่างวัน)
+
   workflow_dispatch:
-# กำหนดสิทธิ์ให้บอทเขียนไฟล์ลงใน Repository ได้
+
 permissions:
   contents: write
 jobs:
@@ -23,18 +22,16 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-// 1. ระบุหุ้นยอดฮิตที่อยากให้ดึงล่วงหน้า (คุณสามารถเพิ่มหุ้นไทยหรือ US อื่นๆ ตรงนี้ได้เลย)
             const symbols = ['AAPL', 'TSLA', 'MSFT', 'VOO', 'QQQ'];
             let resultData = { prices: {}, fxRate: 35.0, lastUpdated: new Date().toISOString() };
             try {
-// 2. ดึงอัตราแลกเปลี่ยน THB=X
             console.log("Fetching THB=X...");
             const fxRes = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/THB=X');
             if (fxRes.ok) {
             const fxData = await fxRes.json();
             resultData.fxRate = fxData.chart.result[0].meta.regularMarketPrice;
             }
-// 3. วนลูปดึงราคาหุ้นทีละตัว
+
             for (const sym of symbols) {
             console.log(⁠Fetching ${sym}...⁠);
             const res = await fetch(⁠https://query1.finance.yahoo.com/v8/finance/chart/${sym}⁠);
@@ -43,7 +40,6 @@ jobs:
             resultData.prices[sym] = data.chart.result[0].meta.regularMarketPrice;
             }
             }
-// 4. บันทึกผลลัพธ์เป็นไฟล์ prices.json ใน Repository
             fs.writeFileSync('./prices.json', JSON.stringify(resultData, null, 2));
             console.log("✅ Successfully saved prices.json!");
             } catch (error) {
@@ -55,5 +51,4 @@ jobs:
           git config --global user.name "Robo-Rebalancer Bot"
           git config --global user.email "bot@robo-rebalancer.local"
           git add prices.json
-# เช็คว่ามีไฟล์เปลี่ยนไหม ถ้ามีถึงจะ commit (ป้องกัน error)
           git diff --quiet && git diff --staged --quiet || (git commit -m "🤖 Auto-update latest stock prices [skip ci]" && git push)
