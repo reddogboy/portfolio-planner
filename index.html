@@ -3,20 +3,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Portfolio Tracker Pro | By Jake the Red Dog</title>
+    <title>Portfolio Planner | By Jake the Red Dog</title>
     
-    <!-- React & Tailwind -->
-    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
-    <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
+    <!-- 1. Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- Dependencies สำหรับ Recharts (สร้างกราฟ) -->
-    <script src="https://unpkg.com/react-is/umd/react-is.production.min.js"></script>
-    <script src="https://unpkg.com/prop-types/prop-types.min.js"></script>
-    <script src="https://unpkg.com/recharts/umd/Recharts.min.js"></script>
+    <!-- 2. โหลด React & ReactDOM (ล็อคเวอร์ชัน 18.2.0 เสถียรที่สุด) -->
+    <script src="https://unpkg.com/react@18.2.0/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js" crossorigin></script>
     
-    <!-- Firebase SDK (Compat Version) -->
+    <!-- 3. โหลด Babel สำหรับแปลงโค้ด JSX (ล็อคเวอร์ชัน 7) -->
+    <script src="https://unpkg.com/@babel/standalone@7.23.6/babel.min.js"></script>
+    
+    <!-- 4. Dependencies สำหรับ Recharts (สร้างกราฟ) -->
+    <script src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
+    <script src="https://unpkg.com/recharts@2.1.9/umd/Recharts.js"></script>
+    
+    <!-- 5. Firebase SDK (Compat Version) -->
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
@@ -82,7 +85,7 @@
             const [fxRate, setFxRate] = useState(35.00); 
 
             // --- 2. Portfolio Data States ---
-            const [portfolios, setPortfolios] = useState({}); // { portId1: { name, assets, goal, history }, portId2: {...} }
+            const [portfolios, setPortfolios] = useState({}); 
             const [activePortId, setActivePortId] = useState(null);
             const [prices, setPrices] = useState({});
             
@@ -94,7 +97,7 @@
             const [dcaAmount, setDcaAmount] = useState(0);
             const [dcaCurrency, setDcaCurrency] = useState('THB');
 
-            const [graphTimeframe, setGraphTimeframe] = useState('ALL'); // 1M, 3M, 6M, 1Y, YTD, ALL
+            const [graphTimeframe, setGraphTimeframe] = useState('ALL'); 
 
             // --- 4. Form States (Smart Form) ---
             const [editId, setEditId] = useState(null);
@@ -125,7 +128,7 @@
                     const unsubscribe = docRef.onSnapshot(doc => {
                         if (doc.exists) {
                             const data = doc.data();
-                            // Data Migration (ถ้ามีข้อมูลเก่าแบบเก่า ให้แปลงเป็นโครงสร้างพอร์ตแบบใหม่)
+                            // Data Migration
                             if (data.portfolios) {
                                 setPortfolios(data.portfolios);
                                 if (!activePortId) setActivePortId(Object.keys(data.portfolios)[0]);
@@ -136,7 +139,6 @@
                                 docRef.update({ portfolios: newStruct, portfolio: firebase.firestore.FieldValue.delete() });
                             }
                         } else {
-                            // ผู้ใช้ใหม่
                             const newStruct = { 'default_port': { name: 'พอร์ตหลัก', assets: [], history: [], goal: null } };
                             docRef.set({ portfolios: newStruct, createdAt: new Date() });
                             setPortfolios(newStruct);
@@ -154,7 +156,7 @@
             };
 
             // ---------------------------------------------------------
-            // 📈 SMART FORM LOGIC (คำนวณช่องว่างอัตโนมัติ)
+            // 📈 SMART FORM LOGIC
             // ---------------------------------------------------------
             const handleSharesChange = (val) => {
                 setShares(val);
@@ -224,7 +226,7 @@
                 if(user && activePortId) fetchMarketData(); 
             }, [user, activePortId]);
 
-            // 🌟 Snapshot System: บันทึกข้อมูลประวัติศาสตร์วันละ 1 ครั้ง เพื่อวาดกราฟ
+            // Snapshot System
             useEffect(() => {
                 if (!isLoading && Object.keys(prices).length > 0 && activePortId && assets.length > 0) {
                     const todayStr = new Date().toISOString().split('T')[0];
@@ -241,7 +243,6 @@
                     let history = activePortfolio.history || [];
                     const lastEntry = history.length > 0 ? history[history.length - 1] : null;
                     
-                    // บันทึกเฉพาะเมื่อยังไม่มีข้อมูลของวันนี้ หรือ มูลค่าเปลี่ยนไปอย่างมีนัยสำคัญ
                     if (!lastEntry || lastEntry.date !== todayStr) {
                         const newHistory = [...history, { date: todayStr, cost: calcCostTHB, value: calcValueTHB }];
                         saveToCloud({ ...portfolios, [activePortId]: { ...activePortfolio, history: newHistory } });
@@ -250,7 +251,7 @@
             }, [prices, isLoading]);
 
             // ---------------------------------------------------------
-            // 🧠 REBALANCING & ANALYSIS ENGINE
+            // 🧠 REBALANCING ENGINE
             // ---------------------------------------------------------
             const analysis = useMemo(() => {
                 let currentTotalValueTHB = 0;
@@ -274,11 +275,10 @@
                     return { ...item, marketPrice, currentValueTHB, costTHB, profitLoss, profitLossPercent };
                 });
 
-                const isWeightValid = Math.abs(totalTargetWeight - 100) < 0.1; // อนุโลมทศนิยม
+                const isWeightValid = Math.abs(totalTargetWeight - 100) < 0.1; 
                 const cashToAddTHB = cashToAdd * (cashCurrency === 'USD' ? fxRate : 1);
                 const targetTotalValueTHB = currentTotalValueTHB + (rebalanceMode === 'CLASSIC' ? 0 : cashToAddTHB);
 
-                // 🌟 ARCHITECT LOGIC: Proportional Allocation สำหรับโหมด BUY_ONLY
                 let shortfallSum = 0;
                 const shortfalls = enrichedPortfolio.map(item => {
                     const targetValueTHB = targetTotalValueTHB * (item.targetWeight / 100);
@@ -299,7 +299,6 @@
                     let finalActionTHB = item.rawDiffValueTHB;
                     
                     if (rebalanceMode === 'BUY_ONLY') {
-                        // กระจายเงินก้อนใหม่ตามสัดส่วนที่ขาดจริง
                         if (shortfallSum > 0 && cashToAddTHB > 0) {
                             finalActionTHB = cashToAddTHB * (item.shortfall / shortfallSum);
                         } else {
@@ -396,7 +395,7 @@
                 setEditId(null); setSymbol(""); setShares(""); setAvgPrice(""); setTotalCost(""); setTargetWeight(""); setCurrency("USD");
             }
 
-            // --- Goal Tracking Logic ---
+            // --- Goal Tracking ---
             const [showGoalForm, setShowGoalForm] = useState(false);
             const [goalInvest, setGoalInvest] = useState(120000);
             const [goalGrowth, setGoalGrowth] = useState(8);
@@ -416,12 +415,10 @@
                 const yearsElapsed = currentYear - startYear;
                 const r = targetGrowth / 100;
                 
-                // FV = PV*(1+r)^n + PMT * [((1+r)^n - 1) / r]
                 let expectedValue = startValue;
                 if (yearsElapsed > 0) {
                     expectedValue = startValue * Math.pow(1 + r, yearsElapsed) + annualInvest * ((Math.pow(1 + r, yearsElapsed) - 1) / r);
                 } else {
-                    // ปีแรก (Pro-rata คร่าวๆ)
                     const month = new Date().getMonth() + 1;
                     expectedValue = startValue + (annualInvest * (month / 12));
                 }
@@ -432,13 +429,13 @@
 
             const goalStatus = getGoalStatus();
 
-            // --- Chart Filtering Logic ---
+            // --- Chart Logic ---
             const chartData = useMemo(() => {
                 let data = activePortfolio.history || [];
                 if (data.length === 0) return [];
                 
                 const now = new Date();
-                let cutoffDate = new Date(0); // All time
+                let cutoffDate = new Date(0);
 
                 if (graphTimeframe === '1M') cutoffDate.setMonth(now.getMonth() - 1);
                 else if (graphTimeframe === '3M') cutoffDate.setMonth(now.getMonth() - 3);
@@ -457,7 +454,7 @@
             // ---------------------------------------------------------
             // 🖥️ UI RENDER
             // ---------------------------------------------------------
-            if (isAuthChecking) return <div className="min-h-screen flex items-center justify-center text-slate-400">Loading...</div>;
+            if (isAuthChecking) return <div className="min-h-screen flex items-center justify-center text-slate-400 font-bold">กำลังโหลดระบบ...</div>;
 
             if (!user) {
                 return (
@@ -477,7 +474,6 @@
 
             return (
                 <div className="max-w-7xl mx-auto p-3 md:p-6 space-y-6 fade-in pb-20">
-                    {/* Header & Portfolio Selector */}
                     <div className="relative glass-panel p-5 md:p-6 rounded-3xl border border-slate-700 shadow-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-6 overflow-hidden">
                         <div className="absolute top-0 right-0 p-4">
                             <button onClick={handleAuth} className="text-[10px] md:text-xs font-bold bg-rose-500/20 text-rose-400 px-3 py-1.5 rounded-full hover:bg-rose-500 hover:text-white transition">ออกจากระบบ</button>
@@ -512,10 +508,8 @@
 
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                         
-                        {/* ฝั่งซ้าย: จัดการข้อมูล (Forms & Goals) */}
                         <div className="lg:col-span-4 space-y-6">
                             
-                            {/* ฟอร์มเพิ่มสินทรัพย์ (Smart Form) */}
                             <div className={`glass-panel p-5 rounded-3xl transition-all duration-300 ${editId ? 'ring-2 ring-blue-500 bg-slate-800/90' : 'bg-slate-800/40'}`}>
                                 <div className="flex justify-between items-center mb-4 border-b border-slate-700 pb-3">
                                     <h3 className="text-base font-bold text-white flex items-center gap-2">
@@ -560,7 +554,6 @@
                                 </form>
                             </div>
 
-                            {/* 🎯 Goal Setting */}
                             <div className="glass-panel p-5 rounded-3xl bg-gradient-to-br from-indigo-900/30 to-slate-900/50 border border-indigo-500/20">
                                 <div className="flex justify-between items-center mb-4">
                                     <h3 className="text-base font-bold text-indigo-300 flex items-center gap-2">🎯 เป้าหมายพอร์ต</h3>
@@ -595,13 +588,10 @@
 
                         </div>
 
-                        {/* ฝั่งขวา: Main Dashboard */}
                         <div className="lg:col-span-8 space-y-6">
                             
-                            {/* Rebalance Control & DCA */}
                             <div className="glass-panel p-4 md:p-5 rounded-3xl grid grid-cols-1 md:grid-cols-2 gap-6 border-t-4 border-t-blue-500">
                                 
-                                {/* Rebalance Mode */}
                                 <div>
                                     <h3 className="text-xs font-bold text-slate-400 mb-3 uppercase tracking-wider">🛠️ ปรับสมดุล (Rebalance)</h3>
                                     <div className="flex bg-slate-900 p-1 rounded-xl">
@@ -619,7 +609,6 @@
                                     )}
                                 </div>
 
-                                {/* DCA Monthly */}
                                 <div className="border-t border-slate-700 md:border-t-0 md:border-l md:pl-6 pt-4 md:pt-0">
                                     <h3 className="text-xs font-bold text-slate-400 mb-3 uppercase tracking-wider">📅 แบ่งเงินซื้อ (DCA) ตามเป้า</h3>
                                     <div className="flex gap-2">
@@ -641,7 +630,6 @@
                                 </div>
                             </div>
 
-                            {/* Validation Warning */}
                             {!analysis.isWeightValid && assets.length > 0 && (
                                 <div className="bg-rose-500/10 border border-rose-500/50 p-4 rounded-2xl flex items-start gap-3">
                                     <div className="text-rose-500 text-xl">⚠️</div>
@@ -652,7 +640,6 @@
                                 </div>
                             )}
 
-                            {/* Portfolio Data (Mobile Cards / Desktop Table) */}
                             <div className="glass-panel rounded-3xl overflow-hidden shadow-2xl border-slate-700">
                                 <div className="flex justify-between items-center p-4 md:p-5 bg-slate-800/80 border-b border-slate-700">
                                     <h3 className="font-bold text-slate-200 text-sm md:text-base flex items-center gap-2">📊 รายการสินทรัพย์</h3>
@@ -661,7 +648,6 @@
                                     </button>
                                 </div>
 
-                                {/* 🌟 Mobile View (Cards) */}
                                 <div className="md:hidden flex flex-col gap-3 p-3 bg-slate-900/50">
                                     {analysis.rebalancePlan.length === 0 && <div className="text-center py-10 text-slate-500 text-xs">ไม่มีสินทรัพย์ในพอร์ตนี้</div>}
                                     {analysis.rebalancePlan.map(item => {
@@ -722,7 +708,6 @@
                                     })}
                                 </div>
 
-                                {/* 🌟 Desktop View (Table) */}
                                 <div className="hidden md:block overflow-x-auto">
                                     <table className="w-full text-sm text-left text-slate-300">
                                         <thead className="text-[10px] text-slate-400 uppercase bg-slate-900/80 border-b border-slate-700">
@@ -796,7 +781,6 @@
                                 </div>
                             </div>
 
-                            {/* 📈 History Graph */}
                             <div className="glass-panel p-4 md:p-6 rounded-3xl border border-slate-700">
                                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
                                     <h3 className="font-bold text-white text-base">📈 กราฟการเติบโตของพอร์ต (History)</h3>
