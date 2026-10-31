@@ -15,12 +15,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: 📈 Fetch Latest Prices from Yahoo Finance
+      - name: 📈 Fetch All Portfolio Prices from Yahoo Finance
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
-            const symbols = ['AAPL', 'AMZN', 'GOOGL', 'TSLA', 'MSFT', 'VOO', 'QQQM', 'TSM', 'COST', 'V'];
+            letsymbols = ['AAPL', 'AMZN', 'GOOGL', 'TSLA', 'MSFT', 'VOO', 'QQQM', 'TSM', 'COST', 'V'];
             let resultData = { prices: {}, fxRate: 35.0, lastUpdated: new Date().toISOString() };
             try {
             console.log('Fetching THB=X...');
@@ -30,11 +30,15 @@ jobs:
             resultData.fxRate = fxData.chart.result[0].meta.regularMarketPrice;
             }
             for (const sym of symbols) {
+            try{
             console.log('Fetching ' + sym + '...');
             const res = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/' + sym);
             if (res.ok) {
             const data = await res.json();
             resultData.prices[sym] = data.chart.result[0].meta.regularMarketPrice;
+            }
+            } catch(err){
+            console.warn(Skipped ${sym});
             }
             }
             fs.writeFileSync('./prices.json', JSON.stringify(resultData, null, 2));
