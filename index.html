@@ -3,22 +3,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Robo-Rebalancer V3 | Cloud Sync & Auto-Update</title>
+    <title>Robo-Rebalancer | Cloud Edition</title>
     
     <!-- React & Tailwind -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
-
-    <!-- 🔴 NEW: Firebase SDKs (จำเป็นสำหรับระบบ Login และ Cloud Database) -->
-    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+    
+    <!-- Firebase SDK (Compat Version สำหรับ HTML ไฟล์เดียว) -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
     <style>
         body { background-color: #0f172a; color: #f8fafc; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-        input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        input[type=number]::-webkit-inner-spin-button, 
+        input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
         .glass-panel { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.1); }
         .fade-in { animation: fadeIn 0.3s ease-in-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
@@ -28,31 +29,29 @@
     <div id="root"></div>
 
     <script type="text/babel">
+        const { useState, useEffect, useMemo, useCallback } = React;
+
         // =========================================================================
-        // 🔴🔴🔴 TECH LEAD INSTRUCTION: ใส่ FIREBASE CONFIG ของคุณตรงนี้ 🔴🔴🔴
-        // (ต้องไปสมัครที่ firebase.google.com -> สร้างโปรเจกต์ -> Web App)
+        // 🔥 1. FIREBASE CONFIGURATION (กุญแจของคุณ)
         // =========================================================================
         const firebaseConfig = {
-            apiKey: "ใส่_API_KEY_ของคุณที่นี่",
-            authDomain: "โปรเจกต์ของคุณ.firebaseapp.com",
-            projectId: "โปรเจกต์ของคุณ",
-            storageBucket: "โปรเจกต์ของคุณ.firebasestorage.app",
-            messagingSenderId: "123456789",
-            appId: "1:123456789:web:abcdefg"
+            apiKey: "AIzaSyAi0LJXM9eiyDeBALit1zmMbvaK9uO_WR8",
+            authDomain: "portfolio-price-update.firebaseapp.com",
+            projectId: "portfolio-price-update",
+            storageBucket: "portfolio-price-update.firebasestorage.app",
+            messagingSenderId: "10843745696",
+            appId: "1:10843745696:web:4ce9cadc0e8c67fbc448c5",
+            measurementId: "G-ZHMNN3H82R"
         };
-        
+
         // Initialize Firebase
         if (!firebase.apps.length) {
-            try {
-                firebase.initializeApp(firebaseConfig);
-            } catch (err) {
-                console.error("Firebase Initialization Error (รอกรอก Config):", err);
-            }
+            firebase.initializeApp(firebaseConfig);
         }
-        const auth = firebase.apps.length ? firebase.auth() : null;
-        const db = firebase.apps.length ? firebase.firestore() : null;
-
-        const { useState, useEffect, useMemo, useCallback } = React;
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+        const googleProvider = new firebase.auth.GoogleAuthProvider();
+        // =========================================================================
 
         const formatMoney = (amount, currency = 'THB') => {
             const symbol = currency === 'USD' ? '$' : '฿';
@@ -61,22 +60,21 @@
         const formatPercent = (percent) => (percent).toLocaleString("th-TH", { maximumFractionDigits: 1 }) + "%";
 
         function App() {
-            // --- 🔐 SYSTEM: User Auth State ---
+            // --- System States ---
             const [user, setUser] = useState(null);
-            const [authLoading, setAuthLoading] = useState(true);
+            const [isAuthChecking, setIsAuthChecking] = useState(true);
+            const [isLoading, setIsLoading] = useState(false);
 
-            // --- 📦 SYSTEM: Data State ---
+            // --- App States ---
             const [portfolio, setPortfolio] = useState([]);
             const [prices, setPrices] = useState({});
             const [fxRate, setFxRate] = useState(35.00); 
-            const [isLoading, setIsLoading] = useState(false);
-            const [isSyncing, setIsSyncing] = useState(false); // สถานะโชว์ว่ากำลังเซฟขึ้น Cloud
             
             const [rebalanceMode, setRebalanceMode] = useState('CLASSIC');
             const [cashToAdd, setCashToAdd] = useState(0);
             const [dcaAmount, setDcaAmount] = useState(0);
 
-            // Form States
+            // --- Form States ---
             const [editId, setEditId] = useState(null);
             const [symbol, setSymbol] = useState("");
             const [shares, setShares] = useState("");
@@ -84,104 +82,105 @@
             const [currency, setCurrency] = useState("USD");
             const [targetWeight, setTargetWeight] = useState("");
 
-            // 1. Auth Listener: ตรวจสอบการ Login
+            // ---------------------------------------------------------
+            // ☁️ CLOUD SYNC & AUTH LOGIC
+            // ---------------------------------------------------------
+            // 1. ตรวจสอบสถานะ Login
             useEffect(() => {
-                if (!auth) { setAuthLoading(false); return; }
-                const unsubscribe = auth.onAuthStateChanged((currentUser) => {
+                const unsubscribe = auth.onAuthStateChanged(currentUser => {
                     setUser(currentUser);
-                    setAuthLoading(false);
+                    setIsAuthChecking(false);
                 });
                 return () => unsubscribe();
             }, []);
 
-            // 2. Data Listener: ดึงข้อมูลพอร์ตจาก Cloud Firestore
+            // 2. ดึงข้อมูลพอร์ตจาก Firestore แบบ Real-time
             useEffect(() => {
-                if (user && db) {
-                    setIsSyncing(true);
+                if (user) {
                     const docRef = db.collection('users').doc(user.uid);
-                    const unsubscribe = docRef.onSnapshot((doc) => {
+                    const unsubscribe = docRef.onSnapshot(doc => {
                         if (doc.exists) {
                             setPortfolio(doc.data().portfolio || []);
                         } else {
-                            // ถ้ายังไม่มีข้อมูล ให้สร้างเอกสารใหม่
-                            docRef.set({ portfolio: [], createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+                            // ถ้าเป็นผู้ใช้ใหม่ ให้สร้าง Document เปล่าๆ รอไว้
+                            docRef.set({ portfolio: [], createdAt: new Date() });
                         }
-                        setIsSyncing(false);
-                    }, (error) => {
-                        console.error("Error fetching data:", error);
-                        setIsSyncing(false);
                     });
                     return () => unsubscribe();
                 } else {
-                    setPortfolio([]);
+                    setPortfolio([]); // เคลียร์พอร์ตเมื่อ Logout
                 }
             }, [user]);
 
-            // 3. Fetch Data (อัปเกรด: อ่านจากไฟล์ Static ที่ GitHub Actions อัปเดตให้ทุก 7 โมงเช้า)
+            // ฟังก์ชันสำหรับเซฟลง Cloud
+            const saveToCloud = async (newPortfolio) => {
+                if (user) {
+                    await db.collection('users').doc(user.uid).update({ portfolio: newPortfolio });
+                }
+            };
+
+            // ---------------------------------------------------------
+            // 📈 MARKET DATA FETCHING (CRON JOB INTEGRATION)
+            // ---------------------------------------------------------
             const fetchMarketData = useCallback(async () => {
                 setIsLoading(true);
                 let newPrices = { ...prices };
                 let currentFx = fxRate;
 
                 try {
-                    // 🌟 ARCHITECT LOGIC: ลองอ่านจาก prices.json ที่ GitHub Actions สร้างไว้ก่อน (โหลดไวมาก, ไม่ล่ม)
-                    const staticRes = await fetch(`./prices.json?t=${new Date().getTime()}`);
-                    if (staticRes.ok) {
-                        const staticData = await staticRes.json();
-                        setPrices(staticData.prices || {});
-                        if(staticData.fxRate) setFxRate(staticData.fxRate);
+                    // ARCHITECT LOGIC: ลองดึงจากไฟล์ prices.json (ที่บอท GitHub สร้างให้) ก่อน
+                    console.log("Attempting to fetch from prices.json...");
+                    const localRes = await fetch('./prices.json');
+                    
+                    if (localRes.ok) {
+                        const localData = await localRes.json();
+                        setPrices(localData.prices || {});
+                        setFxRate(localData.fxRate || 35.00);
                         setIsLoading(false);
-                        return; // จบการทำงาน ถ้ามีไฟล์
+                        return; // จบการทำงาน ไม่ต้องไปดึง Proxy ให้เสียเวลา
                     }
-                } catch (err) {
-                    console.log("No static prices.json found. Falling back to live fetch...");
+                } catch (e) {
+                    console.log("prices.json not found, falling back to Proxy...");
                 }
 
-                // 🌟 FALLBACK: ถ้าระบบ 7 โมงเช้ายังไม่ทำงาน (หรือตอนกำลังเทสต์) ให้ดึงสด
-                if (portfolio.length > 0) {
-                    try {
-                        const proxyUrl = 'https://corsproxy.io/?';
-                        
-                        // ดึงค่าเงินบาท
-                        const fxUrl = encodeURIComponent('https://query1.finance.yahoo.com/v8/finance/chart/THB=X');
-                        const fxRes = await fetch(proxyUrl + fxUrl);
-                        if (fxRes.ok) {
-                            const fxData = await fxRes.json();
-                            currentFx = fxData.chart.result[0].meta.regularMarketPrice;
-                            setFxRate(currentFx);
-                        }
-
-                        // ดึงราคาหุ้น
-                        for (let item of portfolio) {
-                            if (item.currency === 'THB' && !item.symbol.includes('.')) {
-                                if (item.symbol === 'CASH') newPrices[item.symbol] = 1;
-                                continue;
-                            }
-                            try {
-                                const ticker = item.symbol.toUpperCase();
-                                const targetUrl = encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}`);
-                                const response = await fetch(proxyUrl + targetUrl);
-                                if (response.ok) {
-                                    const data = await response.json();
-                                    newPrices[ticker] = data.chart.result[0].meta.regularMarketPrice;
-                                }
-                            } catch (err) { console.error(`Error fetching ${item.symbol}`); }
-                        }
-                    } catch (error) {
-                        console.error("Live fetch failed", error);
+                // FALLBACK: ถ้าไม่มีไฟล์ json ให้ดึงสดผ่าน Proxy (เช่นตอนรันเทสในเครื่องตัวเอง)
+                try {
+                    const proxyUrl = 'https://corsproxy.io/?';
+                    const fxUrl = encodeURIComponent('https://query1.finance.yahoo.com/v8/finance/chart/THB=X');
+                    const fxRes = await fetch(proxyUrl + fxUrl);
+                    if (fxRes.ok) {
+                        const fxData = await fxRes.json();
+                        currentFx = fxData.chart.result[0].meta.regularMarketPrice;
+                        setFxRate(currentFx);
                     }
+
+                    for (let item of portfolio) {
+                        if (item.currency === 'THB' && !item.symbol.includes('.')) continue;
+                        try {
+                            const ticker = item.symbol.toUpperCase();
+                            const targetUrl = encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}`);
+                            const response = await fetch(proxyUrl + targetUrl);
+                            if (response.ok) {
+                                const data = await response.json();
+                                newPrices[ticker] = data.chart.result[0].meta.regularMarketPrice;
+                            }
+                        } catch (err) { console.error(`Error fetching ${item.symbol}`); }
+                    }
+                } catch (error) {
+                    console.error("Market data fetch failed", error);
                 }
                 
                 setPrices(newPrices);
                 setIsLoading(false);
-            }, [portfolio, fxRate, prices]);
+            }, [portfolio, fxRate]);
 
             useEffect(() => { 
-                // ดึงราคาครั้งเดียวตอนที่พอร์ตโหลดเสร็จ หรือเข้ามาใหม่
                 if(user) fetchMarketData(); 
-            }, [user]);
+            }, [user]); // ดึงราคาเมื่อล็อกอินสำเร็จ
 
-            // 4. Rebalancing Engine (เหมือน V2)
+            // ---------------------------------------------------------
+            // 🧠 REBALANCING ENGINE
+            // ---------------------------------------------------------
             const analysis = useMemo(() => {
                 let currentTotalValueTHB = 0;
                 let totalTargetWeight = 0;
@@ -189,8 +188,10 @@
 
                 const enrichedPortfolio = portfolio.map(item => {
                     const marketPrice = prices[item.symbol] || item.avgPrice || 1; 
-                    const costTHB = item.avgPrice * item.shares * (item.currency === 'USD' ? fxRate : 1);
-                    const currentValueTHB = marketPrice * item.shares * (item.currency === 'USD' ? fxRate : 1);
+                    const fxMultiplier = item.currency === 'USD' ? fxRate : 1;
+                    
+                    const costTHB = item.avgPrice * item.shares * fxMultiplier;
+                    const currentValueTHB = marketPrice * item.shares * fxMultiplier;
                     
                     currentTotalValueTHB += currentValueTHB;
                     totalTargetWeight += item.targetWeight;
@@ -208,9 +209,12 @@
                 const rebalancePlan = enrichedPortfolio.map(item => {
                     const targetValueTHB = targetTotalValueTHB * (item.targetWeight / 100);
                     const currentWeight = currentTotalValueTHB > 0 ? (item.currentValueTHB / currentTotalValueTHB) * 100 : 0;
+                    
                     let diffValueTHB = targetValueTHB - item.currentValueTHB;
                     
-                    if (rebalanceMode === 'BUY_ONLY' && diffValueTHB < 0) diffValueTHB = 0;
+                    if (rebalanceMode === 'BUY_ONLY' && diffValueTHB < 0) {
+                        diffValueTHB = 0; // บังคับไม่ขาย
+                    }
 
                     const actionValueNative = item.currency === 'USD' ? diffValueTHB / fxRate : diffValueTHB;
                     const actionShares = item.marketPrice > 0 ? actionValueNative / item.marketPrice : 0;
@@ -218,20 +222,25 @@
                     return { ...item, currentWeight, targetValueTHB, diffValueTHB, actionShares };
                 });
 
-                return { currentTotalValueTHB, totalCostTHB, totalProfitLoss: currentTotalValueTHB - totalCostTHB, targetTotalValueTHB, totalTargetWeight, isWeightValid, rebalancePlan };
+                return { 
+                    currentTotalValueTHB, totalCostTHB, totalProfitLoss: currentTotalValueTHB - totalCostTHB,
+                    targetTotalValueTHB, totalTargetWeight, isWeightValid, rebalancePlan 
+                };
             }, [portfolio, prices, fxRate, rebalanceMode, cashToAdd]);
 
-            // 5. Handlers (Save to Cloud)
-            const syncToCloud = async (newPortfolio) => {
-                if (!user || !db) return;
-                setIsSyncing(true);
-                try {
-                    await db.collection('users').doc(user.uid).update({ portfolio: newPortfolio, lastUpdated: firebase.firestore.FieldValue.serverTimestamp() });
-                } catch (error) {
-                    console.error("Error saving to cloud:", error);
-                    alert("บันทึกข้อมูลไม่สำเร็จ");
+            // ---------------------------------------------------------
+            // 🛠️ ACTIONS (Create, Update, Delete)
+            // ---------------------------------------------------------
+            const handleAuth = async () => {
+                if (user) {
+                    await auth.signOut();
+                } else {
+                    try {
+                        await auth.signInWithPopup(googleProvider);
+                    } catch (error) {
+                        alert("Login Failed: " + error.message);
+                    }
                 }
-                setIsSyncing(false);
             };
 
             const saveAsset = (e) => {
@@ -251,20 +260,18 @@
                     newPortfolio = portfolio.map(p => p.id === editId ? { ...p, ...assetData } : p);
                     setEditId(null);
                 } else {
-                    newPortfolio = [...portfolio, { id: Date.now().toString(), ...assetData }];
+                    newPortfolio = [...portfolio, { id: Date.now(), ...assetData }];
                 }
                 
                 setPortfolio(newPortfolio);
-                syncToCloud(newPortfolio); // เซฟขึ้น Cloud
-                
+                saveToCloud(newPortfolio); // เซฟขึ้น Cloud
                 setSymbol(""); setShares(""); setAvgPrice(""); setTargetWeight(""); setCurrency("USD");
-                setTimeout(fetchMarketData, 100); 
+                setTimeout(fetchMarketData, 500); 
             };
 
             const editAsset = (item) => {
-                setEditId(item.id);
-                setSymbol(item.symbol); setShares(item.shares); setAvgPrice(item.avgPrice);
-                setCurrency(item.currency); setTargetWeight(item.targetWeight);
+                setEditId(item.id); setSymbol(item.symbol); setShares(item.shares);
+                setAvgPrice(item.avgPrice); setCurrency(item.currency); setTargetWeight(item.targetWeight);
                 window.scrollTo({ top: 0, behavior: 'smooth' });
             };
 
@@ -272,146 +279,147 @@
                 if(window.confirm("ยืนยันการลบสินทรัพย์นี้?")) {
                     const newPortfolio = portfolio.filter(a => a.id !== id);
                     setPortfolio(newPortfolio);
-                    syncToCloud(newPortfolio); // ลบบน Cloud
-                    if(editId === id) setEditId(null); 
+                    saveToCloud(newPortfolio); // อัปเดต Cloud
+                    if(editId === id) cancelEdit();
                 }
             };
 
-            const loginWithGoogle = () => {
-                if (!auth) return alert("กรุณาใส่ Firebase Config ในโค้ดก่อนใช้งาน");
-                const provider = new firebase.auth.GoogleAuthProvider();
-                auth.signInWithPopup(provider).catch(err => alert(err.message));
-            };
-
-            const logout = () => {
-                if(auth) auth.signOut();
-            };
-
-            // ---------------- UI RENDER ----------------
-
-            if (authLoading) {
-                return <div className="min-h-screen flex items-center justify-center"><div className="text-xl font-bold animate-pulse text-blue-400">Loading Robo-Rebalancer...</div></div>;
+            const cancelEdit = () => {
+                setEditId(null); setSymbol(""); setShares(""); setAvgPrice(""); setTargetWeight(""); setCurrency("USD");
             }
 
-            // 🌟 หน้า Login
+            // ---------------------------------------------------------
+            // 🖥️ UI RENDER
+            // ---------------------------------------------------------
+            if (isAuthChecking) return <div className="min-h-screen flex items-center justify-center font-bold text-slate-400">Loading...</div>;
+
             if (!user) {
                 return (
-                    <div className="min-h-screen flex items-center justify-center p-4">
-                        <div className="bg-slate-800 p-8 rounded-2xl shadow-2xl border border-slate-700 max-w-md w-full text-center fade-in">
-                            <h1 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-400 mb-2">Robo-Rebalancer</h1>
-                            <p className="text-slate-400 mb-8 text-sm">เข้าสู่ระบบเพื่อบันทึกพอร์ตโฟลิโอของคุณไว้บน Cloud อย่างปลอดภัย (ข้อมูลไม่หายแม้เปลี่ยนเครื่อง)</p>
-                            <button onClick={loginWithGoogle} className="w-full bg-white text-slate-800 font-bold py-3 px-4 rounded-xl shadow hover:bg-slate-100 transition flex items-center justify-center gap-3">
-                                <img src="https://www.svgrepo.com/show/475656/google-color.svg" alt="Google" className="w-5 h-5"/>
-                                เข้าสู่ระบบด้วยบัญชี Google
+                    <div className="min-h-screen flex flex-col items-center justify-center p-4">
+                        <div className="glass-panel p-8 rounded-3xl max-w-sm w-full text-center fade-in">
+                            <h1 className="text-4xl mb-4">📈</h1>
+                            <h2 className="text-2xl font-black text-white mb-2">Robo-Rebalancer</h2>
+                            <p className="text-slate-400 text-sm mb-8">กรุณาเข้าสู่ระบบเพื่อซิงค์ข้อมูลพอร์ตของคุณบน Cloud</p>
+                            <button onClick={handleAuth} className="w-full bg-white text-slate-800 font-black py-4 rounded-xl shadow-lg hover:bg-slate-200 transition flex justify-center items-center gap-3">
+                                <svg className="w-5 h-5" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+                                Sign in with Google
                             </button>
                         </div>
                     </div>
                 );
             }
 
-            // 🌟 หน้า Dashboard หลัก (หลังจาก Login สำเร็จ)
             return (
                 <div className="max-w-7xl mx-auto p-4 md:p-6 space-y-6 fade-in">
-                    {/* Header + Profile */}
+                    {/* Header */}
                     <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-slate-800/80 p-6 rounded-2xl border border-slate-700 shadow-xl">
-                        <div className="flex items-center gap-4">
-                            <img src={user.photoURL || 'https://via.placeholder.com/150'} alt="Profile" className="w-12 h-12 rounded-full border-2 border-blue-500" />
-                            <div>
-                                <h1 className="text-2xl font-black bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">
-                                    Robo-Rebalancer V3
-                                </h1>
-                                <div className="flex items-center gap-2 mt-1">
-                                    <p className="text-slate-400 text-xs">ยินดีต้อนรับ, {user.displayName}</p>
-                                    <button onClick={logout} className="text-[10px] bg-slate-700 hover:bg-rose-500/80 text-white px-2 py-0.5 rounded transition">ออกจากระบบ</button>
-                                </div>
-                            </div>
+                        <div>
+                            <h1 className="text-3xl font-black bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">
+                                📈 Robo-Rebalancer (Cloud)
+                            </h1>
+                            <p className="text-slate-400 text-sm mt-1 flex items-center gap-2">
+                                <span className="bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded text-[10px] font-bold">ONLINE</span>
+                                ผู้ใช้งาน: {user.email} (1 USD = {fxRate.toFixed(2)} THB)
+                            </p>
                         </div>
-                        <div className="text-right">
-                            <div className="flex items-center justify-end gap-2 text-sm text-slate-400">
-                                มูลค่าพอร์ตปัจจุบัน (THB) 
-                                {isSyncing ? <span className="text-xs text-blue-400 animate-pulse">☁️ Syncing...</span> : <span className="text-xs text-emerald-400">☁️ Cloud Saved</span>}
-                            </div>
+                        <div className="text-right flex flex-col items-end">
                             <h2 className="text-4xl font-black text-white">{formatMoney(analysis.currentTotalValueTHB, 'THB')}</h2>
                             <div className={`text-sm font-bold mt-1 ${analysis.totalProfitLoss >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                                 {analysis.totalProfitLoss >= 0 ? '▲' : '▼'} {formatMoney(Math.abs(analysis.totalProfitLoss), 'THB')} 
-                                ({analysis.totalCostTHB > 0 ? ((analysis.totalProfitLoss/analysis.totalCostTHB)*100).toFixed(2) : 0}%)
                             </div>
+                            <button onClick={handleAuth} className="mt-4 text-xs text-slate-500 hover:text-white transition">Sign Out</button>
                         </div>
                     </div>
 
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                         
-                        {/* ฝั่งซ้าย: Form (ย่อโค้ด UI ลงเพื่อความกระชับ) */}
+                        {/* ฝั่งซ้าย: Form */}
                         <div className="lg:col-span-4 space-y-6">
-                            <div className={`glass-panel p-6 rounded-2xl transition-all duration-300 ${editId ? 'ring-2 ring-blue-500 shadow-blue-900/50 bg-slate-800' : ''}`}>
-                                <h3 className="text-lg font-bold text-white mb-4 border-b border-slate-600 pb-2">
-                                    {editId ? '✏️ แก้ไขสินทรัพย์' : '➕ เพิ่มสินทรัพย์'}
-                                </h3>
+                            <div className={`glass-panel p-6 rounded-2xl transition-all duration-300 ${editId ? 'ring-2 ring-blue-500 bg-slate-800' : ''}`}>
+                                <div className="flex justify-between items-center mb-4 border-b border-slate-600 pb-2">
+                                    <h3 className="text-lg font-bold text-white">{editId ? '✏️ แก้ไขสินทรัพย์' : '➕ เพิ่มสินทรัพย์'}</h3>
+                                    {editId && <button onClick={cancelEdit} className="text-xs text-slate-400 bg-slate-700 px-2 py-1 rounded">ยกเลิก</button>}
+                                </div>
                                 <form onSubmit={saveAsset} className="space-y-4">
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="col-span-2">
                                             <label className="block text-xs font-bold text-slate-400 mb-1">สัญลักษณ์ (Symbol)</label>
-                                            <input type="text" value={symbol} onChange={e => setSymbol(e.target.value)} className="w-full p-2 bg-slate-900 border border-slate-600 rounded-lg text-white uppercase outline-none focus:border-blue-500" placeholder="AAPL" required />
+                                            <input type="text" value={symbol} onChange={e => setSymbol(e.target.value)} className="w-full p-2 bg-slate-900 border border-slate-600 rounded-lg text-white uppercase outline-none" required />
                                         </div>
+                                        <div><label className="block text-xs font-bold text-slate-400 mb-1">หุ้น (Shares)</label><input type="number" step="0.0001" value={shares} onChange={e => setShares(e.target.value)} className="w-full p-2 bg-slate-900 border border-slate-600 rounded-lg text-white outline-none" required min="0" /></div>
+                                        <div><label className="block text-xs font-bold text-slate-400 mb-1">เป้า (% Target)</label><input type="number" step="0.1" value={targetWeight} onChange={e => setTargetWeight(e.target.value)} className="w-full p-2 bg-slate-900 border border-slate-600 rounded-lg text-white outline-none" required min="0" max="100" /></div>
+                                        <div><label className="block text-xs font-bold text-slate-400 mb-1">ทุน (Avg Price)</label><input type="number" step="0.01" value={avgPrice} onChange={e => setAvgPrice(e.target.value)} className="w-full p-2 bg-slate-900 border border-slate-600 rounded-lg text-white outline-none" required min="0" /></div>
                                         <div>
-                                            <label className="block text-xs font-bold text-slate-400 mb-1">จำนวนหุ้น</label>
-                                            <input type="number" step="0.0001" value={shares} onChange={e => setShares(e.target.value)} className="w-full p-2 bg-slate-900 border border-slate-600 rounded-lg text-white outline-none" required min="0" />
-                                        </div>
-                                        <div>
-                                            <label className="block text-xs font-bold text-slate-400 mb-1">เป้าหมาย (%)</label>
-                                            <input type="number" step="0.1" value={targetWeight} onChange={e => setTargetWeight(e.target.value)} className="w-full p-2 bg-slate-900 border border-slate-600 rounded-lg text-white outline-none" required min="0" max="100" />
-                                        </div>
-                                        <div>
-                                            <label className="block text-xs font-bold text-slate-400 mb-1">ทุนเฉลี่ย</label>
-                                            <input type="number" step="0.01" value={avgPrice} onChange={e => setAvgPrice(e.target.value)} className="w-full p-2 bg-slate-900 border border-slate-600 rounded-lg text-white outline-none" required min="0" />
-                                        </div>
-                                        <div>
-                                            <label className="block text-xs font-bold text-slate-400 mb-1">สกุลเงิน</label>
-                                            <select value={currency} onChange={e => setCurrency(e.target.value)} className="w-full p-2 bg-slate-900 border border-slate-600 rounded-lg text-white font-bold outline-none">
-                                                <option value="USD">USD ($)</option>
-                                                <option value="THB">THB (฿)</option>
+                                            <label className="block text-xs font-bold text-slate-400 mb-1">สกุล (Currency)</label>
+                                            <select value={currency} onChange={e => setCurrency(e.target.value)} className="w-full p-2 bg-slate-900 border border-slate-600 rounded-lg text-white outline-none font-bold">
+                                                <option value="USD">USD ($)</option><option value="THB">THB (฿)</option>
                                             </select>
                                         </div>
                                     </div>
-                                    <div className="flex gap-2 mt-4">
-                                        {editId && <button type="button" onClick={() => setEditId(null)} className="w-1/3 bg-slate-700 text-white font-bold py-3 rounded-lg">ยกเลิก</button>}
-                                        <button type="submit" className={`flex-1 font-bold py-3 rounded-lg transition text-white ${editId ? 'bg-blue-600 hover:bg-blue-500' : 'bg-emerald-600 hover:bg-emerald-500'}`}>
-                                            {editId ? 'อัปเดตข้อมูล' : 'บันทึกสินทรัพย์'}
-                                        </button>
-                                    </div>
+                                    <button type="submit" className={`w-full font-bold py-3 rounded-lg text-white ${editId ? 'bg-blue-600' : 'bg-emerald-600'}`}>
+                                        {editId ? 'อัปเดต (Update)' : 'บันทึก (Save)'}
+                                    </button>
                                 </form>
+                            </div>
+
+                            <div className="glass-panel p-6 rounded-2xl bg-indigo-900/20">
+                                <h3 className="text-md font-bold text-indigo-300 mb-2">📅 แผน DCA รายเดือน</h3>
+                                <div className="flex items-center bg-slate-900 rounded-lg border border-indigo-500/50 overflow-hidden mb-4">
+                                    <span className="px-3 text-slate-400 font-bold">฿</span>
+                                    <input type="number" value={dcaAmount || ''} onChange={e => setDcaAmount(Number(e.target.value))} className="w-full p-2 bg-transparent text-white font-bold outline-none" placeholder="ยอดเงิน DCA" />
+                                </div>
+                                {dcaAmount > 0 && analysis.isWeightValid && (
+                                    <div className="space-y-2">
+                                        {portfolio.map(p => (
+                                            <div key={p.id} className="flex justify-between items-center text-sm border-b border-slate-700/50 pb-1">
+                                                <span className="text-slate-300">{p.symbol} ({p.targetWeight}%)</span>
+                                                <span className="text-indigo-300 font-mono">{formatMoney(dcaAmount * (p.targetWeight/100), 'THB')}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         </div>
 
-                        {/* ฝั่งขวา: Table Dashboard */}
+                        {/* ฝั่งขวา: Table */}
                         <div className="lg:col-span-8 space-y-6">
                             
-                            {/* Rebalance Mode Selector */}
-                            <div className="glass-panel p-4 rounded-2xl flex flex-col md:flex-row gap-4 items-center justify-between border-t-4 border-t-blue-500">
-                                <div className="flex-1 w-full flex gap-3">
-                                    <label className={`flex-1 flex items-center gap-2 p-2.5 rounded-xl border cursor-pointer transition-all ${rebalanceMode === 'CLASSIC' ? 'bg-blue-900/40 border-blue-400' : 'bg-slate-800/50 border-slate-600 hover:border-slate-400'}`}>
-                                        <input type="radio" checked={rebalanceMode === 'CLASSIC'} onChange={() => setRebalanceMode('CLASSIC')} className="hidden" />
-                                        <div className="font-bold text-sm text-blue-100">⚖️ ขาย-ซื้อ ปกติ</div>
-                                    </label>
-                                    <label className={`flex-1 flex items-center gap-2 p-2.5 rounded-xl border cursor-pointer transition-all ${rebalanceMode === 'BUY_ONLY' ? 'bg-emerald-900/40 border-emerald-400' : 'bg-slate-800/50 border-slate-600 hover:border-slate-400'}`}>
-                                        <input type="radio" checked={rebalanceMode === 'BUY_ONLY'} onChange={() => setRebalanceMode('BUY_ONLY')} className="hidden" />
-                                        <div className="font-bold text-sm text-emerald-100">💰 เติมเงิน (ไม่ขาย)</div>
-                                    </label>
+                            <div className="glass-panel p-5 rounded-2xl flex flex-col md:flex-row gap-6 border-t-4 border-t-blue-500">
+                                <div className="flex-1 w-full">
+                                    <h3 className="text-sm font-bold text-slate-300 mb-3">🛠️ โหมดปรับสมดุล (Rebalance Mode)</h3>
+                                    <div className="flex gap-3">
+                                        <label className={`flex-1 p-3 rounded-xl border cursor-pointer ${rebalanceMode === 'CLASSIC' ? 'bg-blue-900/40 border-blue-400' : 'border-slate-600'}`}>
+                                            <input type="radio" checked={rebalanceMode === 'CLASSIC'} onChange={() => setRebalanceMode('CLASSIC')} className="hidden" />
+                                            <div className="font-bold text-sm text-blue-100">⚖️ ขาย-ซื้อ ปกติ</div>
+                                        </label>
+                                        <label className={`flex-1 p-3 rounded-xl border cursor-pointer ${rebalanceMode === 'BUY_ONLY' ? 'bg-emerald-900/40 border-emerald-400' : 'border-slate-600'}`}>
+                                            <input type="radio" checked={rebalanceMode === 'BUY_ONLY'} onChange={() => setRebalanceMode('BUY_ONLY')} className="hidden" />
+                                            <div className="font-bold text-sm text-emerald-100">💰 เติมเงิน (ไม่ขาย)</div>
+                                        </label>
+                                    </div>
                                 </div>
                                 {rebalanceMode === 'BUY_ONLY' && (
-                                    <div className="flex-1 w-full flex items-center bg-slate-900 rounded-lg border border-emerald-500/50 overflow-hidden fade-in">
-                                        <span className="px-3 text-emerald-500 font-bold">฿</span>
-                                        <input type="number" value={cashToAdd || ''} onChange={e => setCashToAdd(Number(e.target.value))} className="w-full p-2.5 bg-transparent border-none outline-none text-white text-lg font-bold" placeholder="ยอดเงินเติม" />
+                                    <div className="flex-1 w-full">
+                                        <label className="block text-xs font-bold text-emerald-400 mb-2">เงินสดที่เติมเข้าพอร์ต (THB)</label>
+                                        <div className="flex items-center bg-slate-900 rounded-lg border border-emerald-500/50 overflow-hidden">
+                                            <span className="px-4 text-emerald-500 font-bold">฿</span>
+                                            <input type="number" value={cashToAdd || ''} onChange={e => setCashToAdd(Number(e.target.value))} className="w-full p-3 bg-transparent text-white text-xl font-bold outline-none" placeholder="0" />
+                                        </div>
                                     </div>
                                 )}
                             </div>
 
-                            {/* Table */}
+                            {!analysis.isWeightValid && portfolio.length > 0 && (
+                                <div className="bg-rose-500/20 border-l-4 border-rose-500 p-4 rounded-r-lg">
+                                    <h4 className="font-bold text-rose-400">⚠️ สัดส่วนเป้าหมายรวมไม่เท่ากับ 100% (ปัจจุบัน {analysis.totalTargetWeight}%)</h4>
+                                </div>
+                            )}
+
                             <div className="glass-panel rounded-2xl overflow-hidden shadow-2xl border-slate-700">
                                 <div className="flex justify-between items-center p-4 bg-slate-800/80 border-b border-slate-700">
                                     <h3 className="font-bold text-slate-200">📊 ตารางพอร์ตโฟลิโอ</h3>
-                                    <button onClick={fetchMarketData} disabled={isLoading} className={`text-xs px-3 py-1.5 rounded font-bold transition-all ${isLoading ? 'bg-slate-700 text-slate-500' : 'bg-slate-700 text-slate-200 hover:bg-slate-600'}`}>
-                                        {isLoading ? '⏳ กำลังอัปเดต...' : '🔄 ซิงค์ราคาล่าสุด'}
+                                    <button onClick={fetchMarketData} disabled={isLoading} className={`text-xs px-3 py-1.5 rounded font-bold ${isLoading ? 'bg-slate-700' : 'bg-slate-700 hover:bg-slate-600'} text-white`}>
+                                        {isLoading ? '⏳ โหลดราคา...' : '🔄 อัปเดตราคา'}
                                     </button>
                                 </div>
                                 <div className="overflow-x-auto">
@@ -420,15 +428,13 @@
                                             <tr>
                                                 <th className="px-4 py-3 font-bold">สินทรัพย์ (ทุน)</th>
                                                 <th className="px-4 py-3 font-bold text-right">มูลค่าปัจจุบัน (P/L)</th>
-                                                <th className="px-4 py-3 font-bold text-center">สัดส่วน ปัจจุบัน ➡ เป้าหมาย</th>
+                                                <th className="px-4 py-3 font-bold text-center">ปัจจุบัน ➡ เป้าหมาย</th>
                                                 <th className="px-4 py-3 font-bold text-right bg-blue-900/20">คำแนะนำ (Action)</th>
                                                 <th className="px-2 py-3 text-center">จัดการ</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-700/50">
-                                            {analysis.rebalancePlan.length === 0 && (
-                                                <tr><td colSpan="5" className="text-center py-10 text-slate-500">กรุณาเพิ่มสินทรัพย์ด้านซ้ายมือ</td></tr>
-                                            )}
+                                            {analysis.rebalancePlan.length === 0 && <tr><td colSpan="5" className="text-center py-10 text-slate-500">ไม่มีสินทรัพย์ในพอร์ต</td></tr>}
                                             {analysis.rebalancePlan.map(item => {
                                                 const isBuy = item.diffValueTHB > 1; 
                                                 const isSell = item.diffValueTHB < -1;
@@ -438,21 +444,19 @@
                                                 return (
                                                     <tr key={item.id} className="hover:bg-slate-800/50 transition-colors">
                                                         <td className="px-4 py-4">
-                                                            <div className="font-black text-white text-lg tracking-wider">{item.symbol}</div>
-                                                            <div className="text-[10px] text-slate-500 mt-1">หุ้น: {item.shares.toLocaleString()} | ทุน: {formatMoney(item.avgPrice, item.currency)}</div>
+                                                            <div className="font-black text-white text-lg">{item.symbol}</div>
+                                                            <div className="text-[10px] text-slate-500">หุ้น: {item.shares} | ทุน: {formatMoney(item.avgPrice, item.currency)}</div>
                                                         </td>
                                                         <td className="px-4 py-4 text-right">
                                                             <div className="font-bold text-slate-200">{formatMoney(item.currentValueTHB, 'THB')}</div>
-                                                            <div className={`text-[10px] font-bold mt-1 ${plColor}`}>
+                                                            <div className={`text-[10px] font-bold ${plColor}`}>
                                                                 {item.profitLoss >= 0 ? '▲' : '▼'} {formatMoney(Math.abs(item.profitLoss), 'THB')}
                                                             </div>
-                                                            <div className="text-[10px] text-slate-500 mt-0.5">ราคา: {formatMoney(item.marketPrice, item.currency)}</div>
+                                                            <div className="text-[10px] text-slate-500">ตลาด: {formatMoney(item.marketPrice, item.currency)}</div>
                                                         </td>
-                                                        <td className="px-4 py-4 w-48">
-                                                            <div className="flex items-center justify-between text-xs mb-1">
-                                                                <span className="font-bold text-slate-300">{formatPercent(item.currentWeight)}</span>
-                                                                <span className="text-slate-600 text-[10px]">➡</span>
-                                                                <span className="font-bold text-blue-400 bg-blue-900/30 px-1.5 py-0.5 rounded">{formatPercent(item.targetWeight)}</span>
+                                                        <td className="px-4 py-4 w-48 text-center">
+                                                            <div className="flex items-center justify-center gap-2 text-xs mb-1">
+                                                                <span className="font-bold text-slate-300">{formatPercent(item.currentWeight)}</span> ➡ <span className="font-bold text-blue-400">{formatPercent(item.targetWeight)}</span>
                                                             </div>
                                                             <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden flex relative">
                                                                 <div className="absolute top-0 bottom-0 border-l border-red-500 z-10" style={{left: `${item.targetWeight}%`}}></div>
@@ -460,23 +464,21 @@
                                                             </div>
                                                         </td>
                                                         <td className="px-4 py-4 text-right bg-blue-900/10">
-                                                            {!analysis.isWeightValid ? (
-                                                                <span className="text-slate-600 text-xs">เป้าไม่ครบ 100%</span>
-                                                            ) : (
+                                                            {!analysis.isWeightValid ? <span className="text-slate-600 text-xs">รอแก้ไขสัดส่วน</span> : (
                                                                 <div>
-                                                                    <div className={`font-black ${actionColor}`}>{isBuy ? '+' : (isSell ? '' : '')}{formatMoney(item.diffValueTHB, 'THB')}</div>
+                                                                    <div className={`font-black ${actionColor}`}>
+                                                                        {isBuy ? '+' : ''}{formatMoney(item.diffValueTHB, 'THB')}
+                                                                    </div>
                                                                     <div className={`text-[11px] ${actionColor} opacity-90 mt-0.5 font-bold`}>
-                                                                        {isBuy ? '🛒 ซื้อ ' : (isSell ? '📉 ขาย ' : '✅ พอดี ')}
+                                                                        {isBuy ? '🛒 ซื้อเพิ่ม ' : (isSell ? '📉 ขายออก ' : '✅ พอดีเป๊ะ ')}
                                                                         {Math.abs(item.actionShares).toLocaleString("th-TH", { maximumFractionDigits: 4 })} หุ้น
                                                                     </div>
                                                                 </div>
                                                             )}
                                                         </td>
                                                         <td className="px-2 py-4 text-center">
-                                                            <div className="flex justify-center gap-2">
-                                                                <button onClick={() => editAsset(item)} className="text-slate-500 hover:text-blue-400">✏️</button>
-                                                                <button onClick={() => removeAsset(item.id)} className="text-slate-500 hover:text-rose-400">🗑️</button>
-                                                            </div>
+                                                            <button onClick={() => editAsset(item)} className="p-1 mx-1 text-slate-500 hover:text-blue-400">✏️</button>
+                                                            <button onClick={() => removeAsset(item.id)} className="p-1 mx-1 text-slate-500 hover:text-rose-400">🗑️</button>
                                                         </td>
                                                     </tr>
                                                 );
