@@ -15,7 +15,7 @@
     <!-- Babel -->
     <script src="https://unpkg.com/@babel/standalone@7.23.6/babel.min.js"></script>
     
-    <!-- Recharts (🌟 เปลี่ยนกลับไปใช้ไฟล์ .js ธรรมดาที่เสถียร 100%) -->
+    <!-- Recharts -->
     <script src="https://unpkg.com/react-is@18.2.0/umd/react-is.production.min.js"></script>
     <script src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
     <script src="https://unpkg.com/recharts@2.1.9/umd/Recharts.js"></script>
@@ -40,7 +40,7 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        // 🌟 ดึง Recharts มาอย่างระมัดระวัง (ป้องกัน Error 130)
+        // 🌟 ดึง Recharts มาอย่างระมัดระวัง
         const Recharts = window.Recharts;
         const { useState, useEffect, useMemo, useCallback } = React;
         const { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Legend } = Recharts || {};
@@ -64,7 +64,7 @@
         const googleProvider = new firebase.auth.GoogleAuthProvider();
 
         // =========================================================================
-        // 🛡️ ERROR BOUNDARY (เกราะป้องกันจอขาว/จอแดงชั้นสุดท้าย)
+        // 🛡️ ERROR BOUNDARY
         // =========================================================================
         class ErrorBoundary extends React.Component {
             constructor(props) {
@@ -90,7 +90,7 @@
         }
 
         // =========================================================================
-        // 🛠️ UTILITY FUNCTIONS (🌟 ใช้ Function Declaration แก้บั๊ก Safari TDZ)
+        // 🛠️ UTILITY FUNCTIONS
         // =========================================================================
         function formatMoney(amount, currency = 'THB') {
             const safeAmount = Number(amount) || 0;
@@ -160,8 +160,6 @@
             const [dataStatus, setDataStatus] = useState('LIVE'); 
             const [fxRate, setFxRate] = useState(35.00); 
 
-            const [benchmarks, setBenchmarks] = useState({ sp500: { price: 0, change: 0 }, set: { price: 0, change: 0 } });
-
             const [portfolios, setPortfolios] = useState({}); 
             const [activePortId, setActivePortId] = useState(null);
             const [prices, setPrices] = useState({});
@@ -202,7 +200,7 @@
             else if (isAvgPriceFilled && isTotalCostFilled) lockedField = 'shares';
             else if (isSharesFilled && isTotalCostFilled) lockedField = 'avgPrice';
 
-            const activePortfolio = portfolios[activePortId] || { name: 'กำลังโหลด...', assets: [], history: [], goal: null };
+            const activePortfolio = portfolios[activePortId] || { name: 'กำลังโหลด...', assets: [], history: [] };
             const assets = activePortfolio.assets || [];
 
             // ---------------------------------------------------------
@@ -226,12 +224,12 @@
                                 setPortfolios(data.portfolios);
                                 if (!activePortId) setActivePortId(Object.keys(data.portfolios)[0]);
                             } else if (data.portfolio) {
-                                const newStruct = { 'default_port': { name: 'พอร์ตหลัก', assets: data.portfolio, history: [], goal: null } };
+                                const newStruct = { 'default_port': { name: 'พอร์ตหลัก', assets: data.portfolio, history: [] } };
                                 setPortfolios(newStruct); setActivePortId('default_port');
                                 docRef.update({ portfolios: newStruct, portfolio: firebase.firestore.FieldValue.delete() });
                             }
                         } else {
-                            const newStruct = { 'default_port': { name: 'พอร์ตหลัก', assets: [], history: [], goal: null } };
+                            const newStruct = { 'default_port': { name: 'พอร์ตหลัก', assets: [], history: [] } };
                             docRef.set({ portfolios: newStruct, createdAt: new Date() });
                             setPortfolios(newStruct); setActivePortId('default_port');
                         }
@@ -240,7 +238,6 @@
                 }
             }, [user]);
 
-            // 🌟 เปลี่ยน Arrow Functions เป็น Regular Functions ป้องกันบั๊ก Safari
             async function saveToCloud(newPortfoliosData) {
                 if (user) await db.collection('users').doc(user.uid).update({ portfolios: newPortfoliosData });
             }
@@ -275,7 +272,7 @@
             }
 
             // ---------------------------------------------------------
-            // 🌐 MARKET DATA & BENCHMARKS FETCHING
+            // 🌐 ROBUST MARKET DATA FETCHING (API FIX)
             // ---------------------------------------------------------
             const fetchMarketData = useCallback(async () => {
                 if (!activePortId) return; 
@@ -286,7 +283,6 @@
                 let currentFx = fxRate;
                 let localFetchedPrices = {};
                 let hasLiveError = false;
-                let newBenchmarks = { ...benchmarks };
 
                 try {
                     const localRes = await fetch('./prices.json');
@@ -298,37 +294,37 @@
                     }
                 } catch (e) { console.log("Cache missed."); }
 
-                async function fetchLiveQuote(targetUrl) {
-                    const proxies = ['https://api.allorigins.win/raw?url=', 'https://api.codetabs.com/v1/proxy?quest=', 'https://corsproxy.io/?'];
-                    for (let proxy of proxies) {
+                async function fetchLiveQuote(ticker) {
+                    const enc = encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}`);
+                    const proxies = [
+                        `https://api.allorigins.win/get?url=${enc}`, // Parser mode
+                        `https://corsproxy.io/?${enc}`,
+                        `https://api.codetabs.com/v1/proxy?quest=${enc}`
+                    ];
+                    
+                    for (let pUrl of proxies) {
                         try {
-                            const res = await fetch(proxy + encodeURIComponent(targetUrl));
+                            const res = await fetch(pUrl);
                             if (res.ok) {
                                 const data = await res.json();
-                                const meta = data.chart.result[0].meta;
-                                const price = meta.regularMarketPrice;
-                                const prevClose = meta.chartPreviousClose;
-                                const change = prevClose ? ((price - prevClose) / prevClose) * 100 : 0;
-                                return { price, change };
+                                // ถ้าผ่าน allorigins get จะต้อง parse contents ก่อน
+                                const actualData = pUrl.includes('allorigins.win/get') ? JSON.parse(data.contents) : data;
+                                return actualData.chart.result[0].meta.regularMarketPrice;
                             }
                         } catch (err) {}
                     }
-                    throw new Error("Proxy failed");
+                    throw new Error(`Failed to live fetch ${ticker}`);
                 }
 
+                // 🌟 อัปเกรดการดึงค่าเงิน USD/THB ให้เสถียรสุดๆ 
                 try {
-                    const sp500Data = await fetchLiveQuote('https://query1.finance.yahoo.com/v8/finance/chart/^GSPC');
-                    newBenchmarks.sp500 = sp500Data;
-                    const setData = await fetchLiveQuote('https://query1.finance.yahoo.com/v8/finance/chart/^SET.BK');
-                    newBenchmarks.set = setData;
-                    setDataStatus('LIVE'); 
-                } catch (error) { hasLiveError = true; }
-
-                if (!localFetchedPrices['AAPL'] || hasLiveError) { 
-                    try { 
-                        const fxData = await fetchLiveQuote('https://query1.finance.yahoo.com/v8/finance/chart/THB=X'); 
-                        currentFx = fxData.price;
-                    } catch (error) { hasLiveError = true; }
+                    const fxRes = await fetch('https://api.exchangerate-api.com/v4/latest/USD');
+                    if (fxRes.ok) {
+                        const fxData = await fxRes.json();
+                        currentFx = fxData.rates.THB;
+                    } else { throw new Error(); }
+                } catch (error) { 
+                    try { currentFx = await fetchLiveQuote('THB=X'); } catch(e) { hasLiveError = true; }
                 }
 
                 for (let item of assets) {
@@ -338,8 +334,8 @@
                     }
                     
                     try {
-                        const quote = await fetchLiveQuote(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}`);
-                        newPrices[ticker] = quote.price;
+                        const price = await fetchLiveQuote(ticker);
+                        newPrices[ticker] = price;
                         setDataStatus('LIVE'); 
                     } catch (err) {
                         hasLiveError = true;
@@ -354,9 +350,8 @@
 
                 setPrices(newPrices);
                 setFxRate(currentFx);
-                setBenchmarks(newBenchmarks);
                 setIsLoading(false);
-            }, [assets, activePortId, fxRate, benchmarks]);
+            }, [assets, activePortId, fxRate]);
 
             useEffect(() => { if(user && activePortId) fetchMarketData(); }, [user, activePortId]);
 
@@ -450,7 +445,7 @@
                 const portName = prompt("ตั้งชื่อพอร์ตใหม่:");
                 if (portName) {
                     const newId = 'port_' + Date.now();
-                    const updatedPorts = { ...portfolios, [newId]: { name: portName, assets: [], history: [], goal: null } };
+                    const updatedPorts = { ...portfolios, [newId]: { name: portName, assets: [], history: [] } };
                     setPortfolios(updatedPorts); setActivePortId(newId); saveToCloud(updatedPorts);
                 }
             }
@@ -511,46 +506,6 @@
                     if(editId === id) clearForm();
                 }
             }
-
-            // --- Goal Tracking ---
-            const [showGoalForm, setShowGoalForm] = useState(false);
-            const [goalInvest, setGoalInvest] = useState("120000");
-            const [goalGrowth, setGoalGrowth] = useState("8");
-
-            function saveGoal() {
-                const goalData = { 
-                    annualInvest: parseFloat(goalInvest) || 0, 
-                    targetGrowth: parseFloat(goalGrowth) || 0, 
-                    startYear: new Date().getFullYear(), 
-                    startMonth: new Date().getMonth(),
-                    startValue: analysis.currentTotalValueTHB 
-                };
-                const updatedPorts = { ...portfolios, [activePortId]: { ...activePortfolio, goal: goalData } };
-                setPortfolios(updatedPorts); saveToCloud(updatedPorts); setShowGoalForm(false);
-            }
-
-            function getGoalStatus() {
-                if (!activePortfolio.goal) return null;
-                const { annualInvest, targetGrowth, startYear, startMonth, startValue } = activePortfolio.goal;
-                
-                const now = new Date();
-                const fractionalYears = Math.max(0, ((now.getFullYear() - startYear) * 12 + now.getMonth() - (startMonth || 0)) / 12);
-                
-                const r = (Number(targetGrowth)||0) / 100;
-                const pmt = Number(annualInvest)||0;
-                const pv = Number(startValue)||0;
-                
-                let expectedValue = pv;
-                if (r === 0) {
-                    expectedValue = pv + (pmt * fractionalYears);
-                } else {
-                    expectedValue = pv * Math.pow(1 + r, fractionalYears) + pmt * ((Math.pow(1 + r, fractionalYears) - 1) / r);
-                }
-                
-                const diff = analysis.currentTotalValueTHB - expectedValue;
-                return { expectedValue, diff };
-            }
-            const goalStatus = getGoalStatus();
 
             // --- Chart Logic ---
             const graphValDisp = useCallback((thbVal) => {
@@ -627,6 +582,7 @@
                                 <button onClick={deletePortfolio} className="bg-rose-900/40 hover:bg-rose-600 text-rose-300 hover:text-white px-3 py-2 rounded-xl text-sm font-bold shadow-sm transition ml-1" title="ลบพอร์ตนี้">🗑️</button>
                             </div>
                             
+                            {/* 🌟 GLOBAL CURRENCY TOGGLE */}
                             <div className="flex items-center gap-3">
                                 <div className="flex bg-slate-800 p-0.5 rounded-lg border border-slate-700 w-max">
                                     <button onClick={() => setDisplayCurrency('THB')} className={`px-4 py-1.5 text-xs font-bold rounded-md transition ${displayCurrency === 'THB' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}>สกุลเงิน THB ฿</button>
@@ -636,17 +592,6 @@
                         </div>
 
                         <div className="z-10 text-left md:text-right w-full md:w-auto bg-slate-900/50 p-4 rounded-2xl md:bg-transparent md:p-0 mt-2 md:mt-0">
-                            
-                            {/* 🌟 Benchmark Badges */}
-                            <div className="flex justify-start md:justify-end gap-2 mb-3">
-                                <div className="bg-slate-800 px-2 py-1 rounded text-[10px] text-slate-300 border border-slate-700">
-                                    S&P500: <span className={(benchmarks.sp500.change || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{(benchmarks.sp500.change || 0) > 0 ? '+' : ''}{(benchmarks.sp500.change || 0).toFixed(2)}%</span>
-                                </div>
-                                <div className="bg-slate-800 px-2 py-1 rounded text-[10px] text-slate-300 border border-slate-700">
-                                    SET: <span className={(benchmarks.set.change || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{(benchmarks.set.change || 0) > 0 ? '+' : ''}{(benchmarks.set.change || 0).toFixed(2)}%</span>
-                                </div>
-                            </div>
-
                             <div className="flex justify-between md:justify-end items-center mb-1 gap-4">
                                 <p className="text-xs text-slate-400 font-bold flex items-center gap-2">มูลค่าพอร์ตปัจจุบัน ({displayCurrency}) {renderStatusBadge()}</p>
                             </div>
@@ -671,7 +616,7 @@
                         
                         <div className="lg:col-span-4 space-y-6">
                             
-                            {/* 🌟 Smart Form: มีระบบล็อกช่องอัตโนมัติ */}
+                            {/* 🌟 Smart Form */}
                             <div className={`glass-panel p-5 rounded-3xl transition-all duration-300 ${editId ? 'ring-2 ring-blue-500 bg-slate-800/90' : 'bg-slate-800/40'}`}>
                                 <div className="flex justify-between items-center mb-4 border-b border-slate-700 pb-3">
                                     <h3 className="text-base font-bold text-white flex items-center gap-2">
@@ -715,40 +660,11 @@
                                             </select>
                                         </div>
                                     </div>
+                                    <p className="text-[9px] text-slate-500">* ระบุแค่ 2 ใน 3 ช่อง ระบบจะคำนวณช่องที่เหลือให้</p>
                                     <button type="submit" className={`w-full font-black py-3.5 rounded-xl text-white shadow-lg transition-transform hover:scale-[1.02] mt-4 ${editId ? 'bg-blue-600' : 'bg-emerald-600'}`}>
                                         {editId ? 'อัปเดตข้อมูล' : 'บันทึกสินทรัพย์'}
                                     </button>
                                 </form>
-                            </div>
-
-                            {/* 🎯 ส่วนเป้าหมายพอร์ต */}
-                            <div className="glass-panel p-5 rounded-3xl bg-gradient-to-br from-indigo-900/30 to-slate-900/50 border border-indigo-500/20">
-                                <div className="flex justify-between items-center mb-4">
-                                    <h3 className="text-base font-bold text-indigo-300 flex items-center gap-2">🎯 เป้าหมายพอร์ต</h3>
-                                    <button onClick={() => setShowGoalForm(!showGoalForm)} className="text-[10px] bg-indigo-500/20 text-indigo-300 px-2.5 py-1 rounded-full">{showGoalForm ? 'ปิด' : 'ตั้งค่า'}</button>
-                                </div>
-                                
-                                {showGoalForm ? (
-                                    <div className="space-y-3 fade-in">
-                                        <div>
-                                            <label className="block text-[10px] text-slate-400 mb-1">ลงทุนเพิ่มต่อปี ({displayCurrency})</label>
-                                            <NumberInput value={goalInvest} onChange={setGoalInvest} className="w-full p-2 bg-slate-900 rounded-lg text-white text-sm outline-none border border-slate-700" placeholder="เงินฝากเพิ่มรายปี" />
-                                        </div>
-                                        <div>
-                                            <label className="block text-[10px] text-slate-400 mb-1">% เติบโตคาดหวัง</label>
-                                            <NumberInput value={goalGrowth} onChange={setGoalGrowth} className="w-full p-2 bg-slate-900 rounded-lg text-white text-sm outline-none border border-slate-700" placeholder="เป้า % ต่อปี" />
-                                        </div>
-                                        <button onClick={saveGoal} className="w-full bg-indigo-600 text-white font-bold py-2 rounded-lg text-sm hover:bg-indigo-500">บันทึกเป้าหมาย</button>
-                                    </div>
-                                ) : goalStatus ? (
-                                    <div className="fade-in bg-slate-900/50 p-4 rounded-2xl border border-slate-800">
-                                        <div className="text-[10px] text-slate-400 mb-1">เป้าหมายมูลค่าพอร์ต ณ ปัจจุบัน ({displayCurrency})</div>
-                                        <div className="text-xl font-black text-white">{fmtDisp(goalStatus.expectedValue)}</div>
-                                        <div className={`text-xs font-bold mt-2 pt-2 border-t border-slate-700/50 ${goalStatus.diff >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                            {goalStatus.diff >= 0 ? '🎉 ทะลุเป้าหมาย: ' : '⚠️ ยังขาดอีก: '} {fmtDisp(Math.abs(goalStatus.diff))}
-                                        </div>
-                                    </div>
-                                ) : <div className="text-xs text-slate-500 text-center py-4 bg-slate-900/50 rounded-2xl">กด "ตั้งค่า" เพื่อเริ่มวัดผลการเติบโต</div>}
                             </div>
 
                         </div>
@@ -779,7 +695,7 @@
                                         <select value={dcaCurrency} onChange={e=>setDcaCurrency(e.target.value)} className="bg-slate-900 border border-slate-700 text-white rounded-xl px-2 text-xs outline-none">
                                             <option value="USD">USD</option><option value="THB">THB</option>
                                         </select>
-                                        <NumberInput value={dcaAmount} onChange={setDcaAmount} className="w-full p-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white text-sm font-bold outline-none focus:border-indigo-500" placeholder="ยอดเงิน DCA รายเดือน" />
+                                        <NumberInput value={dcaAmount} onChange={setDcaAmount} className="w-full p-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white text-sm font-bold outline-none" placeholder="ยอดเงิน DCA รายเดือน" />
                                     </div>
                                     {parseFloat(dcaAmount) > 0 && analysis.isWeightValid && (
                                         <div className="mt-3 space-y-1.5 fade-in max-h-24 overflow-y-auto pr-1 hide-scrollbar">
@@ -854,16 +770,9 @@
                                                     </div>
                                                 </div>
 
-                                                <div className="px-4 mb-4">
-                                                    <div className="flex justify-between text-[10px] font-bold mb-1">
-                                                        <span className="text-slate-400">สัดส่วนปัจจุบัน <span className="text-white ml-1">{formatPercent(item.currentWeight)}</span></span>
-                                                        <span className="text-slate-400">เป้าหมาย <span className="text-blue-400 ml-1">{formatPercent(item.targetWeight)}</span></span>
-                                                    </div>
-                                                    <div className="w-full bg-slate-900 h-3 rounded-full overflow-hidden flex relative border border-slate-700">
-                                                        <div className="absolute top-0 bottom-0 left-0 bg-blue-900/30" style={{width: `${item.targetWeight}%`}}></div>
-                                                        <div className="absolute top-0 bottom-0 border-r-2 border-blue-500 z-10" style={{width: `${item.targetWeight}%`}}></div>
-                                                        <div className="bg-blue-400 h-full opacity-80" style={{ width: `${Math.min(item.currentWeight, 100)}%` }}></div>
-                                                    </div>
+                                                <div className="px-4 mb-2 flex justify-between text-[10px] font-bold">
+                                                    <span className="text-slate-400">สัดส่วนปัจจุบัน <span className="text-white ml-1">{formatPercent(item.currentWeight)}</span></span>
+                                                    <span className="text-slate-400">เป้าหมาย <span className="text-blue-400 ml-1">{formatPercent(item.targetWeight)}</span></span>
                                                 </div>
 
                                                 <div className={`p-4 flex justify-between items-center ${!analysis.isWeightValid ? 'bg-slate-900' : (isBuy ? 'bg-emerald-900/20 border-t border-emerald-900/50' : (isSell ? 'bg-rose-900/20 border-t border-rose-900/50' : 'bg-slate-900/50 border-t border-slate-700'))}`}>
@@ -930,12 +839,6 @@
                                                                 <span className="text-slate-300">{formatPercent(item.currentWeight)}</span>
                                                                 <span className="text-slate-600 text-[10px]">➡</span>
                                                                 <span className="text-blue-400 bg-blue-900/30 px-1.5 py-0.5 rounded">{formatPercent(item.targetWeight)}</span>
-                                                            </div>
-                                                            {/* Dual Mini Bar */}
-                                                            <div className="w-full bg-slate-900 h-2 rounded-full overflow-hidden flex relative mx-auto border border-slate-700">
-                                                                <div className="absolute top-0 bottom-0 left-0 bg-blue-900/30" style={{width: `${item.targetWeight}%`}}></div>
-                                                                <div className="absolute top-0 bottom-0 border-r-2 border-blue-500 z-10" style={{width: `${item.targetWeight}%`}}></div>
-                                                                <div className="bg-blue-400 h-full opacity-80" style={{ width: `${Math.min(item.currentWeight, 100)}%` }}></div>
                                                             </div>
                                                         </td>
                                                         <td className="px-5 py-4 text-right bg-blue-900/10">
