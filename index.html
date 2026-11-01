@@ -8,14 +8,14 @@
     <!-- 1. Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- 2. โหลด React & ReactDOM -->
+    <!-- 2. โหลด React & ReactDOM (ล็อคเวอร์ชัน) -->
     <script src="https://unpkg.com/react@18.2.0/umd/react.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js" crossorigin></script>
     
     <!-- 3. โหลด Babel สำหรับแปลงโค้ด JSX -->
     <script src="https://unpkg.com/@babel/standalone@7.23.6/babel.min.js"></script>
     
-    <!-- 4. Dependencies สำหรับ Recharts -->
+    <!-- 4. Dependencies สำหรับ Recharts (สร้างกราฟ) -->
     <script src="https://unpkg.com/react-is@18.2.0/umd/react-is.production.min.js"></script>
     <script src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
     <script src="https://unpkg.com/recharts@2.1.9/umd/Recharts.js"></script>
@@ -62,14 +62,13 @@
         const googleProvider = new firebase.auth.GoogleAuthProvider();
 
         // =========================================================================
-        // 🛠️ BULLETPROOF FORMATTERS
+        // 🛠️ UTILITY FUNCTIONS
         // =========================================================================
         const formatMoney = (amount, currency = 'THB') => {
             const safeAmount = Number(amount) || 0;
             const symbol = currency === 'USD' ? '$' : '฿';
             return symbol + safeAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         };
-
         const formatCompact = (val, currency = 'THB') => {
             const safeVal = Number(val) || 0;
             const symbol = currency === 'USD' ? '$' : '฿';
@@ -77,7 +76,6 @@
             if (Math.abs(safeVal) >= 1000) return symbol + (safeVal / 1000).toFixed(1) + "K";
             return symbol + Math.round(safeVal).toLocaleString("en-US");
         };
-
         const formatPercent = (percent) => {
             const safePercent = Number(percent) || 0;
             return (safePercent > 0 ? "+" : "") + safePercent.toLocaleString("en-US", { maximumFractionDigits: 2 }) + "%";
@@ -140,12 +138,14 @@
             
             const [rebalanceMode, setRebalanceMode] = useState('CLASSIC');
             const [cashToAdd, setCashToAdd] = useState("");
-            const [cashCurrency, setCashCurrency] = useState('THB');
+            const [cashCurrency, setCashCurrency] = useState('USD'); // Default
             
             const [dcaAmount, setDcaAmount] = useState("");
-            const [dcaCurrency, setDcaCurrency] = useState('THB');
+            const [dcaCurrency, setDcaCurrency] = useState('USD'); // Default
             const [graphTimeframe, setGraphTimeframe] = useState('ALL'); 
-            const [displayCurrency, setDisplayCurrency] = useState('THB'); 
+            
+            // 🌟 เปลี่ยน Default เป็น USD
+            const [displayCurrency, setDisplayCurrency] = useState('USD'); 
 
             const valDisp = useCallback((thbVal) => {
                 const safeVal = Number(thbVal) || 0;
@@ -163,7 +163,7 @@
             const [currency, setCurrency] = useState("USD");
             const [targetWeight, setTargetWeight] = useState("");
 
-            const activePortfolio = portfolios[activePortId] || { name: 'กำลังโหลด...', assets: [], history: [], goal: null };
+            const activePortfolio = portfolios[activePortId] || { name: 'กำลังโหลด...', assets: [], history: [] };
             const assets = activePortfolio.assets || [];
 
             // ---------------------------------------------------------
@@ -187,12 +187,12 @@
                                 setPortfolios(data.portfolios);
                                 if (!activePortId) setActivePortId(Object.keys(data.portfolios)[0]);
                             } else if (data.portfolio) {
-                                const newStruct = { 'default_port': { name: 'พอร์ตหลัก', assets: data.portfolio, history: [], goal: null } };
+                                const newStruct = { 'default_port': { name: 'พอร์ตหลัก', assets: data.portfolio, history: [] } };
                                 setPortfolios(newStruct); setActivePortId('default_port');
                                 docRef.update({ portfolios: newStruct, portfolio: firebase.firestore.FieldValue.delete() });
                             }
                         } else {
-                            const newStruct = { 'default_port': { name: 'พอร์ตหลัก', assets: [], history: [], goal: null } };
+                            const newStruct = { 'default_port': { name: 'พอร์ตหลัก', assets: [], history: [] } };
                             docRef.set({ portfolios: newStruct, createdAt: new Date() });
                             setPortfolios(newStruct); setActivePortId('default_port');
                         }
@@ -228,15 +228,15 @@
             };
 
             // ---------------------------------------------------------
-            // 🌐 MARKET DATA (🌟 PARALLEL + TIMEOUT ENGINE)
+            // 🌐 MARKET DATA (🌟 ROBUST JSON FETCHING)
             // ---------------------------------------------------------
             const fetchMarketData = useCallback(async () => {
                 if (!activePortId || assets.length === 0) return;
                 setIsLoading(true);
+                let newPrices = { ...prices };
                 let currentFx = fxRate;
                 let localFetchedPrices = {};
 
-                // 1. อ่านข้อมูลจาก Static File (ถ้ามี)
                 try {
                     const localRes = await fetch('./prices.json');
                     if (localRes.ok) {
@@ -246,27 +246,11 @@
                     }
                 } catch (e) { console.log("Cache missed."); }
 
-                // 🌟 ระบบตัดจบอัจฉริยะ ป้องกันแอปค้าง
-                const fetchWithTimeout = async (url, ms = 4000) => {
-                    const controller = new AbortController();
-                    const id = setTimeout(() => controller.abort(), ms);
-                    try {
-                        const response = await fetch(url, { signal: controller.signal });
-                        clearTimeout(id);
-                        return response;
-                    } catch (error) {
-                        clearTimeout(id);
-                        throw error;
-                    }
-                };
-
-                // 🌟 ฟังก์ชันดึงราคาแบบมี Proxy 2 ชั้น พร้อม Timeout (ไม่ค้างแน่นอน)
+                // 🌟 ระบบดึงราคาโคตรทนทาน (ทะลุการบล็อกด้วย allorigins)
                 const fetchLivePrice = async (targetUrl) => {
                     const encodedUrl = encodeURIComponent(targetUrl);
-                    
-                    // ชั้นที่ 1: AllOrigins (เสถียรที่สุด แต่ต้องแปลง JSON 2 ชั้น)
                     try {
-                        const res = await fetchWithTimeout(`https://api.allorigins.win/get?url=${encodedUrl}`, 4000);
+                        const res = await fetch(`https://api.allorigins.win/get?url=${encodedUrl}`);
                         if (res.ok) {
                             const data = await res.json();
                             const parsed = JSON.parse(data.contents);
@@ -274,9 +258,16 @@
                         }
                     } catch (err) {}
 
-                    // ชั้นที่ 2: CorsProxy (สำรอง)
                     try {
-                        const res = await fetchWithTimeout(`https://corsproxy.io/?${encodedUrl}`, 4000);
+                        const res = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodedUrl}`);
+                        if (res.ok) {
+                            const data = await res.json();
+                            return data.chart.result[0].meta.regularMarketPrice;
+                        }
+                    } catch (err) {}
+
+                    try {
+                        const res = await fetch(`https://corsproxy.io/?${encodedUrl}`);
                         if (res.ok) {
                             const data = await res.json();
                             return data.chart.result[0].meta.regularMarketPrice;
@@ -286,56 +277,34 @@
                     throw new Error("All proxies failed.");
                 };
 
-                try {
-                    // ดึงค่าเงิน (ถ้าใน Cache พัง)
-                    if (!localFetchedPrices['AAPL']) { 
-                        try { currentFx = await fetchLivePrice('https://query1.finance.yahoo.com/v8/finance/chart/THB=X'); } catch (error) {}
+                if (!localFetchedPrices['AAPL']) { 
+                    try { currentFx = await fetchLivePrice('https://query1.finance.yahoo.com/v8/finance/chart/THB=X'); } catch (error) {}
+                }
+
+                for (let item of assets) {
+                    const ticker = item.symbol.toUpperCase();
+                    if (item.currency === 'THB' && !ticker.includes('.')) { 
+                        newPrices[ticker] = 1; continue; 
                     }
-
-                    // 🌟 ดึงข้อมูล "พร้อมกันทุกตัว" (Parallel Fetching) ลดเวลาโหลดจาก 2 นาที เหลือ 4 วิ
-                    const pricePromises = assets.map(async (item) => {
-                        const ticker = item.symbol.toUpperCase();
-                        if (item.currency === 'THB' && !ticker.includes('.')) { 
-                            return { ticker, price: 1 };
-                        }
-                        if (localFetchedPrices[ticker]) {
-                            return { ticker, price: localFetchedPrices[ticker] };
-                        }
+                    if (localFetchedPrices[ticker]) {
+                        newPrices[ticker] = localFetchedPrices[ticker];
+                    } else {
                         try {
-                            const livePrice = await fetchLivePrice(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}`);
-                            return { ticker, price: livePrice };
+                            newPrices[ticker] = await fetchLivePrice(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}`);
                         } catch (err) {
-                            console.warn(`[Timeout/Error] Failed to live-fetch ${ticker}`);
-                            return { ticker, price: null };
+                            console.error(`Failed to live-fetch ${ticker}`);
                         }
-                    });
-
-                    // รอจนกว่าจะดึงเสร็จทุกตัว (หรือครบกำหนด Timeout)
-                    const results = await Promise.all(pricePromises);
-                    
-                    // 🌟 อัปเดต State ทีเดียวอย่างปลอดภัย
-                    setPrices(prev => {
-                        const updated = { ...prev };
-                        results.forEach(r => {
-                            if (r.price !== null) updated[r.ticker] = r.price;
-                        });
-                        return updated;
-                    });
-
-                } catch (error) {
-                    console.error("Master Fetch Error:", error);
+                    }
                 }
                 
+                setPrices(newPrices);
                 setFxRate(currentFx);
                 setIsLoading(false);
             }, [assets, activePortId, fxRate]);
 
-            // Auto-fetch เมื่อโหลดแอปครั้งแรก
-            useEffect(() => { 
-                if(user && activePortId) fetchMarketData(); 
-            }, [user, activePortId]);
+            useEffect(() => { if(user && activePortId) fetchMarketData(); }, [user, activePortId]);
 
-            // Snapshot System สำหรับวาดกราฟ
+            // Snapshot System
             useEffect(() => {
                 if (!isLoading && Object.keys(prices).length > 0 && activePortId && assets.length > 0) {
                     const todayStr = new Date().toISOString().split('T')[0];
@@ -358,13 +327,12 @@
             }, [prices, isLoading]);
 
             // ---------------------------------------------------------
-            // 🧠 REBALANCING ENGINE
+            // 🧠 REBALANCING ENGINE (🌟 FIXED MATH BUG)
             // ---------------------------------------------------------
             const analysis = useMemo(() => {
                 let currentTotalValueTHB = 0; let totalTargetWeight = 0; let totalCostTHB = 0;
 
                 const enrichedPortfolio = assets.map(item => {
-                    // 🌟 หากดึงราคาตลาดไม่สำเร็จ ให้ใช้ราคาเดิมเพื่อป้องกันแอปแครช
                     const marketPrice = prices[item.symbol] || item.avgPrice || 1; 
                     const fxMult = item.currency === 'USD' ? fxRate : 1;
                     const costTHB = (Number(item.avgPrice)||0) * (Number(item.shares)||0) * fxMult;
@@ -386,7 +354,8 @@
 
                 let shortfallSum = 0;
                 const shortfalls = enrichedPortfolio.map(item => {
-                    const targetValueTHB = targetTotalValueTHB * (Number(item.targetWeight)||0 / 100);
+                    // 🌟 BUG FIX: ลำดับความสำคัญคณิตศาสตร์ ((Number(item.targetWeight) || 0) / 100)
+                    const targetValueTHB = targetTotalValueTHB * ((Number(item.targetWeight) || 0) / 100);
                     const currentWeight = currentTotalValueTHB > 0 ? (item.currentValueTHB / currentTotalValueTHB) * 100 : 0;
                     let diffValueTHB = targetValueTHB - item.currentValueTHB;
                     let shortfall = 0;
@@ -425,7 +394,7 @@
                 const portName = prompt("ตั้งชื่อพอร์ตใหม่:");
                 if (portName) {
                     const newId = 'port_' + Date.now();
-                    const updatedPorts = { ...portfolios, [newId]: { name: portName, assets: [], history: [], goal: null } };
+                    const updatedPorts = { ...portfolios, [newId]: { name: portName, assets: [], history: [] } };
                     setPortfolios(updatedPorts); setActivePortId(newId); saveToCloud(updatedPorts);
                 }
             };
@@ -463,46 +432,6 @@
                 }
             };
             const cancelEdit = () => { setEditId(null); setSymbol(""); setShares(""); setAvgPrice(""); setTotalCost(""); setTargetWeight(""); }
-
-            // --- Goal Tracking ---
-            const [showGoalForm, setShowGoalForm] = useState(false);
-            const [goalInvest, setGoalInvest] = useState("120000");
-            const [goalGrowth, setGoalGrowth] = useState("8");
-
-            const saveGoal = () => {
-                const goalData = { 
-                    annualInvest: parseFloat(goalInvest) || 0, 
-                    targetGrowth: parseFloat(goalGrowth) || 0, 
-                    startYear: new Date().getFullYear(), 
-                    startMonth: new Date().getMonth(),
-                    startValue: analysis.currentTotalValueTHB 
-                };
-                const updatedPorts = { ...portfolios, [activePortId]: { ...activePortfolio, goal: goalData } };
-                setPortfolios(updatedPorts); saveToCloud(updatedPorts); setShowGoalForm(false);
-            };
-
-            const getGoalStatus = () => {
-                if (!activePortfolio.goal) return null;
-                const { annualInvest, targetGrowth, startYear, startMonth, startValue } = activePortfolio.goal;
-                
-                const now = new Date();
-                const fractionalYears = Math.max(0, ((now.getFullYear() - startYear) * 12 + now.getMonth() - (startMonth || 0)) / 12);
-                
-                const r = (Number(targetGrowth)||0) / 100;
-                const pmt = Number(annualInvest)||0;
-                const pv = Number(startValue)||0;
-                
-                let expectedValue = pv;
-                if (r === 0) {
-                    expectedValue = pv + (pmt * fractionalYears);
-                } else {
-                    expectedValue = pv * Math.pow(1 + r, fractionalYears) + pmt * ((Math.pow(1 + r, fractionalYears) - 1) / r);
-                }
-                
-                const diff = analysis.currentTotalValueTHB - expectedValue;
-                return { expectedValue, diff };
-            };
-            const goalStatus = getGoalStatus();
 
             // --- Chart Logic ---
             const chartData = useMemo(() => {
@@ -544,7 +473,6 @@
 
             return (
                 <div className="max-w-7xl mx-auto p-3 md:p-6 space-y-6 fade-in pb-20">
-                    
                     <div className="relative glass-panel p-5 md:p-6 rounded-3xl border border-slate-700 shadow-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-6 overflow-hidden">
                         <div className="absolute top-0 right-0 p-4">
                             <button onClick={handleAuth} className="text-[10px] md:text-xs font-bold bg-rose-500/20 text-rose-400 px-3 py-1.5 rounded-full hover:bg-rose-500 hover:text-white transition">ออกจากระบบ</button>
@@ -567,13 +495,8 @@
                         </div>
 
                         <div className="z-10 text-left md:text-right w-full md:w-auto bg-slate-900/50 p-4 rounded-2xl md:bg-transparent md:p-0 mt-2 md:mt-0">
-                            <div className="flex justify-between md:justify-end items-center mb-1 gap-4">
-                                <p className="text-xs text-slate-400 font-bold">มูลค่าพอร์ตปัจจุบัน ({displayCurrency})</p>
-                            </div>
-                            
-                            <h2 className="text-3xl md:text-5xl font-black text-white tracking-tight">
-                                {fmtDisp(analysis.currentTotalValueTHB)}
-                            </h2>
+                            <p className="text-xs text-slate-400 font-bold mb-1">มูลค่าพอร์ตปัจจุบัน ({displayCurrency})</p>
+                            <h2 className="text-3xl md:text-5xl font-black text-white tracking-tight">{fmtDisp(analysis.currentTotalValueTHB)}</h2>
                             <div className={`text-sm md:text-base font-bold mt-1 flex items-center gap-2 md:justify-end ${analysis.totalProfitLoss >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                                 {analysis.totalProfitLoss >= 0 ? '▲' : '▼'} 
                                 {fmtDisp(Math.abs(analysis.totalProfitLoss))} 
@@ -630,35 +553,6 @@
                                         {editId ? 'อัปเดตข้อมูล' : 'บันทึกสินทรัพย์'}
                                     </button>
                                 </form>
-                            </div>
-
-                            <div className="glass-panel p-5 rounded-3xl bg-gradient-to-br from-indigo-900/30 to-slate-900/50 border border-indigo-500/20">
-                                <div className="flex justify-between items-center mb-4">
-                                    <h3 className="text-base font-bold text-indigo-300 flex items-center gap-2">🎯 เป้าหมายพอร์ต</h3>
-                                    <button onClick={() => setShowGoalForm(!showGoalForm)} className="text-[10px] bg-indigo-500/20 text-indigo-300 px-2.5 py-1 rounded-full">{showGoalForm ? 'ปิด' : 'ตั้งค่า'}</button>
-                                </div>
-                                
-                                {showGoalForm ? (
-                                    <div className="space-y-3 fade-in">
-                                        <div>
-                                            <label className="block text-[10px] text-slate-400 mb-1">ลงทุนเพิ่มต่อปี ({displayCurrency})</label>
-                                            <NumberInput value={goalInvest} onChange={setGoalInvest} className="w-full p-2 bg-slate-900 rounded-lg text-white text-sm outline-none border border-slate-700" placeholder="เงินฝากเพิ่มรายปี" />
-                                        </div>
-                                        <div>
-                                            <label className="block text-[10px] text-slate-400 mb-1">% เติบโตคาดหวัง</label>
-                                            <NumberInput value={goalGrowth} onChange={setGoalGrowth} className="w-full p-2 bg-slate-900 rounded-lg text-white text-sm outline-none border border-slate-700" placeholder="เป้า % ต่อปี" />
-                                        </div>
-                                        <button onClick={saveGoal} className="w-full bg-indigo-600 text-white font-bold py-2 rounded-lg text-sm">บันทึกเป้าหมาย</button>
-                                    </div>
-                                ) : goalStatus ? (
-                                    <div className="fade-in bg-slate-900/50 p-4 rounded-2xl border border-slate-800">
-                                        <div className="text-[10px] text-slate-400 mb-1">เป้าหมายมูลค่าพอร์ต ณ ปัจจุบัน ({displayCurrency})</div>
-                                        <div className="text-xl font-black text-white">{fmtDisp(goalStatus.expectedValue)}</div>
-                                        <div className={`text-xs font-bold mt-2 pt-2 border-t border-slate-700/50 ${goalStatus.diff >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                            {goalStatus.diff >= 0 ? '🎉 ทะลุเป้าหมาย: ' : '⚠️ ยังขาดอีก: '} {fmtDisp(Math.abs(goalStatus.diff))}
-                                        </div>
-                                    </div>
-                                ) : <div className="text-xs text-slate-500 text-center py-4 bg-slate-900/50 rounded-2xl">กด "ตั้งค่า" เพื่อเริ่มวัดผลการเติบโต</div>}
                             </div>
 
                         </div>
@@ -721,12 +615,11 @@
                             <div className="glass-panel rounded-3xl overflow-hidden shadow-2xl border-slate-700">
                                 <div className="flex justify-between items-center p-4 md:p-5 bg-slate-800/80 border-b border-slate-700">
                                     <h3 className="font-bold text-slate-200 text-sm md:text-base flex items-center gap-2">📊 รายการสินทรัพย์</h3>
-                                    <button onClick={fetchMarketData} disabled={isLoading} className={`text-[10px] md:text-xs px-4 py-2 rounded-xl font-bold shadow-sm transition ${isLoading ? 'bg-slate-700 text-slate-500' : 'bg-blue-600 hover:bg-blue-500 text-white shadow-[0_0_15px_rgba(37,99,235,0.4)]'}`}>
-                                        {isLoading ? '⏳ กำลังโหลด...' : '🔄 อัปเดตราคาล่าสุด'}
+                                    <button onClick={fetchMarketData} disabled={isLoading} className={`text-[10px] md:text-xs px-3 py-2 rounded-xl font-bold shadow-sm transition ${isLoading ? 'bg-slate-700 text-slate-500' : 'bg-blue-600 hover:bg-blue-500 text-white'}`}>
+                                        {isLoading ? '⏳ โหลดราคา...' : '🔄 อัปเดตราคาล่าสุด'}
                                     </button>
                                 </div>
 
-                                {/* Mobile Cards View */}
                                 <div className="md:hidden flex flex-col gap-3 p-3 bg-slate-900/50">
                                     {analysis.rebalancePlan.length === 0 && <div className="text-center py-10 text-slate-500 text-xs">ไม่มีสินทรัพย์ในพอร์ตนี้</div>}
                                     {analysis.rebalancePlan.map(item => {
@@ -791,7 +684,6 @@
                                     })}
                                 </div>
 
-                                {/* Desktop Table View */}
                                 <div className="hidden md:block overflow-x-auto">
                                     <table className="w-full text-sm text-left text-slate-300">
                                         <thead className="text-[10px] text-slate-400 uppercase bg-slate-900/80 border-b border-slate-700">
