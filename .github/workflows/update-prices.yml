@@ -20,7 +20,7 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            letsymbols = ['AAPL', 'AMZN', 'GOOGL', 'TSLA', 'MSFT', 'VOO', 'QQQM', 'TSM', 'COST', 'V'];
+            const symbols = ['AAPL', 'AMZN', 'GOOGL', 'TSLA', 'MSFT', 'VOO', 'QQQM', 'TSM', 'COST', 'V'];
             let resultData = { prices: {}, fxRate: 35.0, lastUpdated: new Date().toISOString() };
             try {
             console.log('Fetching THB=X...');
@@ -38,7 +38,7 @@ jobs:
             resultData.prices[sym] = data.chart.result[0].meta.regularMarketPrice;
             }
             } catch(err){
-            console.warn(Skipped ${sym});
+            console.warn('Skipped' +sym);
             }
             }
             fs.writeFileSync('./prices.json', JSON.stringify(resultData, null, 2));
