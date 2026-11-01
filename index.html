@@ -15,10 +15,10 @@
     <!-- Babel -->
     <script src="https://unpkg.com/@babel/standalone@7.23.6/babel.min.js"></script>
     
-    <!-- Recharts -->
+    <!-- Recharts (🌟 เปลี่ยนกลับไปใช้ไฟล์ .js ธรรมดาที่เสถียร 100%) -->
     <script src="https://unpkg.com/react-is@18.2.0/umd/react-is.production.min.js"></script>
     <script src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
-    <script src="https://unpkg.com/recharts@2.1.9/umd/Recharts.min.js"></script>
+    <script src="https://unpkg.com/recharts@2.1.9/umd/Recharts.js"></script>
     
     <!-- Firebase SDK -->
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
@@ -40,8 +40,10 @@
     <div id="root"></div>
 
     <script type="text/babel">
+        // 🌟 ดึง Recharts มาอย่างระมัดระวัง (ป้องกัน Error 130)
+        const Recharts = window.Recharts;
         const { useState, useEffect, useMemo, useCallback } = React;
-        const { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Legend } = window.Recharts || {};
+        const { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Legend } = Recharts || {};
 
         // =========================================================================
         // 🔥 FIREBASE CONFIGURATION
@@ -62,7 +64,7 @@
         const googleProvider = new firebase.auth.GoogleAuthProvider();
 
         // =========================================================================
-        // 🛡️ ERROR BOUNDARY (เกราะป้องกันจอขาว)
+        // 🛡️ ERROR BOUNDARY (เกราะป้องกันจอขาว/จอแดงชั้นสุดท้าย)
         // =========================================================================
         class ErrorBoundary extends React.Component {
             constructor(props) {
@@ -78,7 +80,7 @@
                         <div className="min-h-screen flex flex-col items-center justify-center p-8 bg-slate-900 text-white text-center">
                             <h1 className="text-5xl mb-4">💥</h1>
                             <h2 className="text-2xl font-black text-rose-500 mb-2">ระบบขัดข้อง (System Error)</h2>
-                            <p className="text-slate-400 text-sm mb-6 max-w-md bg-slate-800 p-4 rounded-xl border border-slate-700 font-mono">{this.state.errorInfo}</p>
+                            <p className="text-slate-400 text-sm mb-6 max-w-md bg-slate-800 p-4 rounded-xl border border-slate-700 font-mono overflow-auto">{this.state.errorInfo}</p>
                             <button onClick={() => window.location.reload()} className="bg-blue-600 hover:bg-blue-500 px-6 py-3 rounded-xl font-bold transition shadow-lg">รีเฟรชหน้าจอ (Refresh)</button>
                         </div>
                     );
@@ -88,29 +90,31 @@
         }
 
         // =========================================================================
-        // 🛠️ UTILITY FUNCTIONS
+        // 🛠️ UTILITY FUNCTIONS (🌟 ใช้ Function Declaration แก้บั๊ก Safari TDZ)
         // =========================================================================
-        const formatMoney = (amount, currency = 'THB') => {
+        function formatMoney(amount, currency = 'THB') {
             const safeAmount = Number(amount) || 0;
             const symbol = currency === 'USD' ? '$' : '฿';
             return symbol + safeAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        };
-        const formatCompact = (val, currency = 'THB') => {
+        }
+
+        function formatCompact(val, currency = 'THB') {
             const safeVal = Number(val) || 0;
             const symbol = currency === 'USD' ? '$' : '฿';
             if (Math.abs(safeVal) >= 1000000) return symbol + (safeVal / 1000000).toFixed(2) + "M";
             if (Math.abs(safeVal) >= 1000) return symbol + (safeVal / 1000).toFixed(1) + "K";
             return symbol + Math.round(safeVal).toLocaleString("en-US");
-        };
-        const formatPercent = (percent) => {
+        }
+
+        function formatPercent(percent) {
             const safePercent = Number(percent) || 0;
             return (safePercent > 0 ? "+" : "") + safePercent.toLocaleString("en-US", { maximumFractionDigits: 2 }) + "%";
-        };
+        }
 
         // =========================================================================
         // 🧩 NUMBER INPUT COMPONENT
         // =========================================================================
-        const NumberInput = ({ value, onChange, placeholder, className, disabled }) => {
+        function NumberInput({ value, onChange, placeholder, className, disabled }) {
             const [localVal, setLocalVal] = useState("");
 
             useEffect(() => {
@@ -125,7 +129,7 @@
                 }
             }, [value]);
 
-            const handleChange = (e) => {
+            function handleChange(e) {
                 if (disabled) return;
                 let raw = e.target.value.replace(/,/g, '').replace(/[^0-9.]/g, ''); 
                 const dots = raw.match(/\./g);
@@ -141,10 +145,10 @@
                 
                 setLocalVal(formatted);
                 onChange(raw);
-            };
+            }
 
             return <input type="text" inputMode="decimal" value={localVal} onChange={handleChange} placeholder={placeholder} className={className} disabled={disabled} autoComplete="off" />;
-        };
+        }
 
         // =========================================================================
         // ⚛️ MAIN APP COMPONENT
@@ -236,38 +240,39 @@
                 }
             }, [user]);
 
-            const saveToCloud = async (newPortfoliosData) => {
+            // 🌟 เปลี่ยน Arrow Functions เป็น Regular Functions ป้องกันบั๊ก Safari
+            async function saveToCloud(newPortfoliosData) {
                 if (user) await db.collection('users').doc(user.uid).update({ portfolios: newPortfoliosData });
-            };
+            }
 
             // ---------------------------------------------------------
-            // 📈 SMART FORM LOGIC (ฟื้นคืนชีพฟังก์ชันที่หายไป!)
+            // 📈 SMART FORM LOGIC
             // ---------------------------------------------------------
-            const handleSharesChange = (val) => {
+            function handleSharesChange(val) {
                 setShares(val);
                 const s = parseFloat(val); 
                 const p = parseFloat(avgPrice);
                 if (!isNaN(s) && !isNaN(p)) setTotalCost((s * p).toFixed(2));
                 else if (val === "") setTotalCost("");
-            };
+            }
 
-            const handleAvgPriceChange = (val) => {
+            function handleAvgPriceChange(val) {
                 setAvgPrice(val);
                 const p = parseFloat(val); 
                 const s = parseFloat(shares); 
                 const c = parseFloat(totalCost);
                 if (!isNaN(p) && !isNaN(s)) setTotalCost((s * p).toFixed(2));
                 else if (!isNaN(p) && !isNaN(c) && p !== 0) setShares((c / p).toFixed(4));
-            };
+            }
 
-            const handleTotalCostChange = (val) => {
+            function handleTotalCostChange(val) {
                 setTotalCost(val);
                 const c = parseFloat(val); 
                 const p = parseFloat(avgPrice); 
                 const s = parseFloat(shares);
                 if (!isNaN(c) && !isNaN(p) && p !== 0) setShares((c / p).toFixed(4));
                 else if (!isNaN(c) && !isNaN(s) && s !== 0) setAvgPrice((c / s).toFixed(2));
-            };
+            }
 
             // ---------------------------------------------------------
             // 🌐 MARKET DATA & BENCHMARKS FETCHING
@@ -293,7 +298,7 @@
                     }
                 } catch (e) { console.log("Cache missed."); }
 
-                const fetchLiveQuote = async (targetUrl) => {
+                async function fetchLiveQuote(targetUrl) {
                     const proxies = ['https://api.allorigins.win/raw?url=', 'https://api.codetabs.com/v1/proxy?quest=', 'https://corsproxy.io/?'];
                     for (let proxy of proxies) {
                         try {
@@ -309,7 +314,7 @@
                         } catch (err) {}
                     }
                     throw new Error("Proxy failed");
-                };
+                }
 
                 try {
                     const sp500Data = await fetchLiveQuote('https://query1.finance.yahoo.com/v8/finance/chart/^GSPC');
@@ -434,23 +439,23 @@
             // ---------------------------------------------------------
             // 🛠️ ACTIONS & FORMS
             // ---------------------------------------------------------
-            const handleAuth = async () => {
+            async function handleAuth() {
                 if (user) await auth.signOut();
                 else {
                     try { await auth.signInWithPopup(googleProvider); } catch (e) { alert("Login Failed"); }
                 }
-            };
+            }
 
-            const createNewPortfolio = () => {
+            function createNewPortfolio() {
                 const portName = prompt("ตั้งชื่อพอร์ตใหม่:");
                 if (portName) {
                     const newId = 'port_' + Date.now();
                     const updatedPorts = { ...portfolios, [newId]: { name: portName, assets: [], history: [], goal: null } };
                     setPortfolios(updatedPorts); setActivePortId(newId); saveToCloud(updatedPorts);
                 }
-            };
+            }
 
-            const deletePortfolio = () => {
+            function deletePortfolio() {
                 if (Object.keys(portfolios).length <= 1) {
                     alert("ต้องมีอย่างน้อย 1 พอร์ตในระบบ ไม่สามารถลบพอร์ตสุดท้ายได้ครับ");
                     return;
@@ -462,14 +467,14 @@
                     setActivePortId(Object.keys(newPorts)[0]);
                     saveToCloud(newPorts);
                 }
-            };
+            }
 
-            const clearForm = (e) => {
+            function clearForm(e) {
                 if(e) e.preventDefault();
                 setEditId(null); setSymbol(""); setShares(""); setAvgPrice(""); setTotalCost(""); setTargetWeight("");
-            };
+            }
 
-            const saveAsset = (e) => {
+            function saveAsset(e) {
                 e.preventDefault();
                 if (!symbol) return;
                 
@@ -488,31 +493,31 @@
                 setPortfolios(updatedPorts); saveToCloud(updatedPorts);
                 clearForm();
                 setTimeout(fetchMarketData, 200); 
-            };
+            }
 
-            const editAsset = (item) => {
+            function editAsset(item) {
                 setEditId(item.id); setSymbol(item.symbol); 
                 setShares((item.shares||0).toString()); setAvgPrice((item.avgPrice||0).toString()); 
                 setTotalCost(((item.shares||0) * (item.avgPrice||0)).toFixed(2));
                 setCurrency(item.currency); setTargetWeight((item.targetWeight||0).toString());
                 window.scrollTo({ top: 0, behavior: 'smooth' });
-            };
+            }
 
-            const removeAsset = (id) => {
+            function removeAsset(id) {
                 if(window.confirm("ยืนยันการลบสินทรัพย์นี้?")) {
                     const newAssets = assets.filter(a => a.id !== id);
                     const updatedPorts = { ...portfolios, [activePortId]: { ...activePortfolio, assets: newAssets } };
                     setPortfolios(updatedPorts); saveToCloud(updatedPorts);
                     if(editId === id) clearForm();
                 }
-            };
+            }
 
             // --- Goal Tracking ---
             const [showGoalForm, setShowGoalForm] = useState(false);
             const [goalInvest, setGoalInvest] = useState("120000");
             const [goalGrowth, setGoalGrowth] = useState("8");
 
-            const saveGoal = () => {
+            function saveGoal() {
                 const goalData = { 
                     annualInvest: parseFloat(goalInvest) || 0, 
                     targetGrowth: parseFloat(goalGrowth) || 0, 
@@ -522,9 +527,9 @@
                 };
                 const updatedPorts = { ...portfolios, [activePortId]: { ...activePortfolio, goal: goalData } };
                 setPortfolios(updatedPorts); saveToCloud(updatedPorts); setShowGoalForm(false);
-            };
+            }
 
-            const getGoalStatus = () => {
+            function getGoalStatus() {
                 if (!activePortfolio.goal) return null;
                 const { annualInvest, targetGrowth, startYear, startMonth, startValue } = activePortfolio.goal;
                 
@@ -544,7 +549,7 @@
                 
                 const diff = analysis.currentTotalValueTHB - expectedValue;
                 return { expectedValue, diff };
-            };
+            }
             const goalStatus = getGoalStatus();
 
             // --- Chart Logic ---
@@ -622,7 +627,6 @@
                                 <button onClick={deletePortfolio} className="bg-rose-900/40 hover:bg-rose-600 text-rose-300 hover:text-white px-3 py-2 rounded-xl text-sm font-bold shadow-sm transition ml-1" title="ลบพอร์ตนี้">🗑️</button>
                             </div>
                             
-                            {/* 🌟 GLOBAL CURRENCY TOGGLE */}
                             <div className="flex items-center gap-3">
                                 <div className="flex bg-slate-800 p-0.5 rounded-lg border border-slate-700 w-max">
                                     <button onClick={() => setDisplayCurrency('THB')} className={`px-4 py-1.5 text-xs font-bold rounded-md transition ${displayCurrency === 'THB' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}>สกุลเงิน THB ฿</button>
@@ -927,6 +931,7 @@
                                                                 <span className="text-slate-600 text-[10px]">➡</span>
                                                                 <span className="text-blue-400 bg-blue-900/30 px-1.5 py-0.5 rounded">{formatPercent(item.targetWeight)}</span>
                                                             </div>
+                                                            {/* Dual Mini Bar */}
                                                             <div className="w-full bg-slate-900 h-2 rounded-full overflow-hidden flex relative mx-auto border border-slate-700">
                                                                 <div className="absolute top-0 bottom-0 left-0 bg-blue-900/30" style={{width: `${item.targetWeight}%`}}></div>
                                                                 <div className="absolute top-0 bottom-0 border-r-2 border-blue-500 z-10" style={{width: `${item.targetWeight}%`}}></div>
@@ -979,31 +984,35 @@
                                 </div>
 
                                 <div className="relative h-[250px] md:h-[350px] w-full rounded-2xl overflow-hidden">
-                                    {/* 🌟 Skeleton/Blurred Graph Placeholder */}
-                                    {displayChartData.length < 2 && (
+                                    {/* 🌟 ใช้งาน Fallback UI แทนการ render กราฟเมื่อ Recharts ตาย */}
+                                    {!Recharts ? (
+                                        <div className="h-full w-full flex items-center justify-center text-slate-500 text-xs text-center border-2 border-dashed border-slate-700 rounded-2xl bg-slate-900/50">
+                                            ⚠️ ไม่สามารถโหลดโมดูลกราฟได้<br/>กรุณารีเฟรชหน้าจอหรือตรวจสอบอินเทอร์เน็ต
+                                        </div>
+                                    ) : displayChartData.length < 2 ? (
                                         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-slate-900/60 backdrop-blur-[3px] border border-slate-700 rounded-2xl">
                                             <div className="text-3xl mb-2">⏳</div>
                                             <div className="text-white font-bold text-sm">กราฟจำลองการเติบโต</div>
                                             <div className="text-slate-400 text-xs mt-1 text-center px-4">ระบบกำลังสะสมข้อมูลพอร์ตของคุณ<br/>ข้อมูลจริงจะแสดงขึ้นเมื่อมีประวัติมากกว่า 2 วันครับ</div>
                                         </div>
+                                    ) : (
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <LineChart data={displayChartData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+                                                <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
+                                                <XAxis dataKey="dateLabel" tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                                                <YAxis tickFormatter={graphTickFormatter} tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                                                <Tooltip 
+                                                    formatter={(value, name) => [formatMoney(value, graphCurrency), name]}
+                                                    contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.95)', border: 'none', borderRadius: '12px', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.5)', fontSize: '12px' }}
+                                                    itemStyle={{ fontWeight: 'bold' }}
+                                                    labelStyle={{ color: '#94a3b8', marginBottom: '8px', fontSize: '11px', borderBottom: '1px solid #334155', paddingBottom: '4px' }}
+                                                />
+                                                <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} iconType="circle" />
+                                                <Line type="monotone" dataKey="มูลค่าตลาด" stroke="#34d399" strokeWidth={3} dot={false} activeDot={{ r: 6, fill: '#34d399', stroke: '#0f172a', strokeWidth: 2 }} />
+                                                <Line type="monotone" dataKey="ต้นทุนรวม" stroke="#94a3b8" strokeWidth={2} strokeDasharray="5 5" dot={false} />
+                                            </LineChart>
+                                        </ResponsiveContainer>
                                     )}
-                                    
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <LineChart data={displayChartData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
-                                            <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
-                                            <XAxis dataKey="dateLabel" tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                                            <YAxis tickFormatter={graphTickFormatter} tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                                            <Tooltip 
-                                                formatter={(value, name) => [formatMoney(value, graphCurrency), name]}
-                                                contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.95)', border: 'none', borderRadius: '12px', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.5)', fontSize: '12px' }}
-                                                itemStyle={{ fontWeight: 'bold' }}
-                                                labelStyle={{ color: '#94a3b8', marginBottom: '8px', fontSize: '11px', borderBottom: '1px solid #334155', paddingBottom: '4px' }}
-                                            />
-                                            <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} iconType="circle" />
-                                            <Line type="monotone" dataKey="มูลค่าตลาด" stroke="#34d399" strokeWidth={3} dot={false} activeDot={{ r: 6, fill: '#34d399', stroke: '#0f172a', strokeWidth: 2 }} />
-                                            <Line type="monotone" dataKey="ต้นทุนรวม" stroke="#94a3b8" strokeWidth={2} strokeDasharray="5 5" dot={false} />
-                                        </LineChart>
-                                    </ResponsiveContainer>
                                 </div>
                             </div>
 
