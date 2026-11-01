@@ -15,10 +15,10 @@
     <!-- Babel -->
     <script src="https://unpkg.com/@babel/standalone@7.23.6/babel.min.js"></script>
     
-    <!-- Recharts -->
+    <!-- Recharts (เปลี่ยนเป็น .min.js เพื่อความเสถียรสูงสุด) -->
     <script src="https://unpkg.com/react-is@18.2.0/umd/react-is.production.min.js"></script>
     <script src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
-    <script src="https://unpkg.com/recharts@2.1.9/umd/Recharts.js"></script>
+    <script src="https://unpkg.com/recharts@2.1.9/umd/Recharts.min.js"></script>
     
     <!-- Firebase SDK -->
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
@@ -41,7 +41,9 @@
 
     <script type="text/babel">
         const { useState, useEffect, useMemo, useCallback } = React;
-        const { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Legend } = window.Recharts;
+        
+        // 🌟 ป้องกันแอปแครชถ้าระบบโหลด Recharts ไม่สำเร็จ
+        const { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Legend } = window.Recharts || {};
 
         // =========================================================================
         // 🔥 FIREBASE CONFIGURATION
@@ -60,6 +62,32 @@
         const auth = firebase.auth();
         const db = firebase.firestore();
         const googleProvider = new firebase.auth.GoogleAuthProvider();
+
+        // =========================================================================
+        // 🛡️ ERROR BOUNDARY (เกราะป้องกันจอขาว)
+        // =========================================================================
+        class ErrorBoundary extends React.Component {
+            constructor(props) {
+                super(props);
+                this.state = { hasError: false, errorInfo: null };
+            }
+            static getDerivedStateFromError(error) {
+                return { hasError: true, errorInfo: error.toString() };
+            }
+            render() {
+                if (this.state.hasError) {
+                    return (
+                        <div className="min-h-screen flex flex-col items-center justify-center p-8 bg-slate-900 text-white text-center">
+                            <h1 className="text-5xl mb-4">💥</h1>
+                            <h2 className="text-2xl font-black text-rose-500 mb-2">ระบบขัดข้อง (System Error)</h2>
+                            <p className="text-slate-400 text-sm mb-6 max-w-md bg-slate-800 p-4 rounded-xl border border-slate-700 font-mono">{this.state.errorInfo}</p>
+                            <button onClick={() => window.location.reload()} className="bg-blue-600 hover:bg-blue-500 px-6 py-3 rounded-xl font-bold transition shadow-lg">รีเฟรชหน้าจอ (Refresh)</button>
+                        </div>
+                    );
+                }
+                return this.props.children;
+            }
+        }
 
         // =========================================================================
         // 🛠️ UTILITY FUNCTIONS
@@ -123,7 +151,7 @@
         // =========================================================================
         // ⚛️ MAIN APP COMPONENT
         // =========================================================================
-        function App() {
+        function MainApp() {
             const [user, setUser] = useState(null);
             const [isAuthChecking, setIsAuthChecking] = useState(true);
             const [isLoading, setIsLoading] = useState(false);
@@ -154,7 +182,9 @@
             }, [displayCurrency, fxRate]);
             
             const fmtDisp = useCallback((thbVal) => formatMoney(valDisp(thbVal), displayCurrency), [valDisp, displayCurrency]);
-            const compactDisp = useCallback((thbVal) => formatCompact(valDisp(thbVal), displayCurrency), [valDisp, displayCurrency]);
+
+            // 🌟 ใช้งานเฉพาะกับ YAxis กราฟ เพื่อป้องกันการหารค่าเงินซ้ำซ้อน
+            const graphTickFormatter = useCallback((val) => formatCompact(val, graphCurrency), [graphCurrency]);
 
             // Form States
             const [editId, setEditId] = useState(null);
@@ -175,7 +205,7 @@
             else if (isAvgPriceFilled && isTotalCostFilled) lockedField = 'shares';
             else if (isSharesFilled && isTotalCostFilled) lockedField = 'avgPrice';
 
-            const activePortfolio = portfolios[activePortId] || { name: 'กำลังโหลด...', assets: [], history: [] };
+            const activePortfolio = portfolios[activePortId] || { name: 'กำลังโหลด...', assets: [], history: [], goal: null };
             const assets = activePortfolio.assets || [];
 
             // ---------------------------------------------------------
@@ -199,12 +229,12 @@
                                 setPortfolios(data.portfolios);
                                 if (!activePortId) setActivePortId(Object.keys(data.portfolios)[0]);
                             } else if (data.portfolio) {
-                                const newStruct = { 'default_port': { name: 'พอร์ตหลัก', assets: data.portfolio, history: [] } };
+                                const newStruct = { 'default_port': { name: 'พอร์ตหลัก', assets: data.portfolio, history: [], goal: null } };
                                 setPortfolios(newStruct); setActivePortId('default_port');
                                 docRef.update({ portfolios: newStruct, portfolio: firebase.firestore.FieldValue.delete() });
                             }
                         } else {
-                            const newStruct = { 'default_port': { name: 'พอร์ตหลัก', assets: [], history: [] } };
+                            const newStruct = { 'default_port': { name: 'พอร์ตหลัก', assets: [], history: [], goal: null } };
                             docRef.set({ portfolios: newStruct, createdAt: new Date() });
                             setPortfolios(newStruct); setActivePortId('default_port');
                         }
@@ -221,9 +251,9 @@
             // 🌐 MARKET DATA & BENCHMARKS FETCHING
             // ---------------------------------------------------------
             const fetchMarketData = useCallback(async () => {
-                if (!activePortId) return; // Fetch benchmarks even if assets is empty
+                if (!activePortId) return; 
                 setIsLoading(true);
-                setDataStatus('LIVE'); // Assume live initially
+                setDataStatus('LIVE'); 
                 
                 let newPrices = { ...prices };
                 let currentFx = fxRate;
@@ -242,7 +272,7 @@
                     }
                 } catch (e) { console.log("Cache missed."); }
 
-                // 2. ฟังก์ชันดึงราคา Live + % Change (สำหรับ Benchmark)
+                // 2. ฟังก์ชันดึงราคา Live + % Change (ทนทานการบล็อก)
                 const fetchLiveQuote = async (targetUrl) => {
                     const proxies = ['https://api.allorigins.win/raw?url=', 'https://api.codetabs.com/v1/proxy?quest=', 'https://corsproxy.io/?'];
                     for (let proxy of proxies) {
@@ -267,7 +297,7 @@
                     newBenchmarks.sp500 = sp500Data;
                     const setData = await fetchLiveQuote('https://query1.finance.yahoo.com/v8/finance/chart/^SET.BK');
                     newBenchmarks.set = setData;
-                    setDataStatus('LIVE'); // ถ้าดึง Benchmark ได้ถือว่า Live
+                    setDataStatus('LIVE'); 
                 } catch (error) { hasLiveError = true; }
 
                 if (!localFetchedPrices['AAPL'] || hasLiveError) { 
@@ -287,7 +317,7 @@
                     try {
                         const quote = await fetchLiveQuote(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}`);
                         newPrices[ticker] = quote.price;
-                        setDataStatus('LIVE'); // สำเร็จอย่างน้อย 1 ตัว
+                        setDataStatus('LIVE'); 
                     } catch (err) {
                         hasLiveError = true;
                         if (localFetchedPrices[ticker]) {
@@ -398,7 +428,7 @@
                 const portName = prompt("ตั้งชื่อพอร์ตใหม่:");
                 if (portName) {
                     const newId = 'port_' + Date.now();
-                    const updatedPorts = { ...portfolios, [newId]: { name: portName, assets: [], history: [] } };
+                    const updatedPorts = { ...portfolios, [newId]: { name: portName, assets: [], history: [], goal: null } };
                     setPortfolios(updatedPorts); setActivePortId(newId); saveToCloud(updatedPorts);
                 }
             };
@@ -426,7 +456,6 @@
                 e.preventDefault();
                 if (!symbol) return;
                 
-                // ใช้ค่าดิบ ถ้าถูกล็อกให้ใช้สมการคำนวณเอา
                 let s = parseFloat(shares) || 0; 
                 let c = parseFloat(totalCost) || 0;
                 let ap = parseFloat(avgPrice) || 0;
@@ -453,7 +482,7 @@
             };
 
             const removeAsset = (id) => {
-                if(window.confirm("ยืนยันการลบ?")) {
+                if(window.confirm("ยืนยันการลบสินทรัพย์นี้?")) {
                     const newAssets = assets.filter(a => a.id !== id);
                     const updatedPorts = { ...portfolios, [activePortId]: { ...activePortfolio, assets: newAssets } };
                     setPortfolios(updatedPorts); saveToCloud(updatedPorts);
@@ -461,9 +490,55 @@
                 }
             };
 
+            // --- Goal Tracking ---
+            const [showGoalForm, setShowGoalForm] = useState(false);
+            const [goalInvest, setGoalInvest] = useState("120000");
+            const [goalGrowth, setGoalGrowth] = useState("8");
+
+            const saveGoal = () => {
+                const goalData = { 
+                    annualInvest: parseFloat(goalInvest) || 0, 
+                    targetGrowth: parseFloat(goalGrowth) || 0, 
+                    startYear: new Date().getFullYear(), 
+                    startMonth: new Date().getMonth(),
+                    startValue: analysis.currentTotalValueTHB 
+                };
+                const updatedPorts = { ...portfolios, [activePortId]: { ...activePortfolio, goal: goalData } };
+                setPortfolios(updatedPorts); saveToCloud(updatedPorts); setShowGoalForm(false);
+            };
+
+            const getGoalStatus = () => {
+                if (!activePortfolio.goal) return null;
+                const { annualInvest, targetGrowth, startYear, startMonth, startValue } = activePortfolio.goal;
+                
+                const now = new Date();
+                const fractionalYears = Math.max(0, ((now.getFullYear() - startYear) * 12 + now.getMonth() - (startMonth || 0)) / 12);
+                
+                const r = (Number(targetGrowth)||0) / 100;
+                const pmt = Number(annualInvest)||0;
+                const pv = Number(startValue)||0;
+                
+                let expectedValue = pv;
+                if (r === 0) {
+                    expectedValue = pv + (pmt * fractionalYears);
+                } else {
+                    expectedValue = pv * Math.pow(1 + r, fractionalYears) + pmt * ((Math.pow(1 + r, fractionalYears) - 1) / r);
+                }
+                
+                const diff = analysis.currentTotalValueTHB - expectedValue;
+                return { expectedValue, diff };
+            };
+            const goalStatus = getGoalStatus();
+
             // --- Chart Logic ---
+            const graphValDisp = useCallback((thbVal) => {
+                const safeVal = Number(thbVal) || 0;
+                return graphCurrency === 'USD' ? safeVal / fxRate : safeVal;
+            }, [graphCurrency, fxRate]);
+
             const chartData = useMemo(() => {
                 let data = activePortfolio.history || [];
+                if (data.length === 0) return [];
                 const now = new Date(); let cutoffDate = new Date(0);
                 if (graphTimeframe === '1M') cutoffDate.setMonth(now.getMonth() - 1);
                 else if (graphTimeframe === '3M') cutoffDate.setMonth(now.getMonth() - 3);
@@ -471,23 +546,18 @@
                 else if (graphTimeframe === '1Y') cutoffDate.setFullYear(now.getFullYear() - 1);
                 else if (graphTimeframe === 'YTD') cutoffDate = new Date(now.getFullYear(), 0, 1);
 
-                const graphValDisp = (thbVal) => {
-                    const safeVal = Number(thbVal) || 0;
-                    return graphCurrency === 'USD' ? safeVal / fxRate : safeVal;
-                };
-
                 return data.filter(d => new Date(d.date) >= cutoffDate).map(d => ({
                     ...d, dateLabel: new Date(d.date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' }),
                     "มูลค่าตลาด": graphValDisp(d.value), "ต้นทุนรวม": graphValDisp(d.cost)
                 }));
-            }, [activePortfolio.history, graphTimeframe, graphCurrency, fxRate]);
+            }, [activePortfolio.history, graphTimeframe, graphValDisp]);
 
             const isMockGraph = chartData.length < 2;
             const displayChartData = isMockGraph ? [
-                { dateLabel: 'วันที่ 1', "มูลค่าตลาด": valDisp(100000), "ต้นทุนรวม": valDisp(100000) },
-                { dateLabel: 'วันที่ 2', "มูลค่าตลาด": valDisp(102000), "ต้นทุนรวม": valDisp(100000) },
-                { dateLabel: 'วันที่ 3', "มูลค่าตลาด": valDisp(105000), "ต้นทุนรวม": valDisp(100000) },
-                { dateLabel: 'วันนี้', "มูลค่าตลาด": valDisp(analysis.currentTotalValueTHB > 0 ? analysis.currentTotalValueTHB : 108000), "ต้นทุนรวม": valDisp(analysis.totalCostTHB > 0 ? analysis.totalCostTHB : 100000) }
+                { dateLabel: 'วันที่ 1', "มูลค่าตลาด": graphValDisp(100000), "ต้นทุนรวม": graphValDisp(100000) },
+                { dateLabel: 'วันที่ 2', "มูลค่าตลาด": graphValDisp(102000), "ต้นทุนรวม": graphValDisp(100000) },
+                { dateLabel: 'วันที่ 3', "มูลค่าตลาด": graphValDisp(105000), "ต้นทุนรวม": graphValDisp(100000) },
+                { dateLabel: 'วันนี้', "มูลค่าตลาด": graphValDisp(analysis.currentTotalValueTHB > 0 ? analysis.currentTotalValueTHB : 108000), "ต้นทุนรวม": graphValDisp(analysis.totalCostTHB > 0 ? analysis.totalCostTHB : 100000) }
             ] : chartData;
 
             // ---------------------------------------------------------
@@ -511,7 +581,6 @@
                 );
             }
 
-            // Status Badge Renderer
             const renderStatusBadge = () => {
                 if (dataStatus === 'LIVE') return <span className="bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded text-[10px] font-bold" title="อัปเดตราคาล่าสุดสำเร็จ">🟢 LIVE</span>;
                 if (dataStatus === 'CACHE') return <span className="bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded text-[10px] font-bold" title="ใช้ข้อมูลราคาจากเมื่อเช้า">🟡 CACHED</span>;
@@ -550,10 +619,10 @@
                             {/* 🌟 Benchmark Badges */}
                             <div className="flex justify-start md:justify-end gap-2 mb-3">
                                 <div className="bg-slate-800 px-2 py-1 rounded text-[10px] text-slate-300 border border-slate-700">
-                                    S&P500: <span className={benchmarks.sp500.change >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{benchmarks.sp500.change > 0 ? '+' : ''}{benchmarks.sp500.change.toFixed(2)}%</span>
+                                    S&P500: <span className={(benchmarks.sp500.change || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{(benchmarks.sp500.change || 0) > 0 ? '+' : ''}{(benchmarks.sp500.change || 0).toFixed(2)}%</span>
                                 </div>
                                 <div className="bg-slate-800 px-2 py-1 rounded text-[10px] text-slate-300 border border-slate-700">
-                                    SET: <span className={benchmarks.set.change >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{benchmarks.set.change > 0 ? '+' : ''}{benchmarks.set.change.toFixed(2)}%</span>
+                                    SET: <span className={(benchmarks.set.change || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{(benchmarks.set.change || 0) > 0 ? '+' : ''}{(benchmarks.set.change || 0).toFixed(2)}%</span>
                                 </div>
                             </div>
 
@@ -631,6 +700,36 @@
                                 </form>
                             </div>
 
+                            {/* 🎯 ส่วนเป้าหมายพอร์ต */}
+                            <div className="glass-panel p-5 rounded-3xl bg-gradient-to-br from-indigo-900/30 to-slate-900/50 border border-indigo-500/20">
+                                <div className="flex justify-between items-center mb-4">
+                                    <h3 className="text-base font-bold text-indigo-300 flex items-center gap-2">🎯 เป้าหมายพอร์ต</h3>
+                                    <button onClick={() => setShowGoalForm(!showGoalForm)} className="text-[10px] bg-indigo-500/20 text-indigo-300 px-2.5 py-1 rounded-full">{showGoalForm ? 'ปิด' : 'ตั้งค่า'}</button>
+                                </div>
+                                
+                                {showGoalForm ? (
+                                    <div className="space-y-3 fade-in">
+                                        <div>
+                                            <label className="block text-[10px] text-slate-400 mb-1">ลงทุนเพิ่มต่อปี ({displayCurrency})</label>
+                                            <NumberInput value={goalInvest} onChange={setGoalInvest} className="w-full p-2 bg-slate-900 rounded-lg text-white text-sm outline-none border border-slate-700" placeholder="เงินฝากเพิ่มรายปี" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] text-slate-400 mb-1">% เติบโตคาดหวัง</label>
+                                            <NumberInput value={goalGrowth} onChange={setGoalGrowth} className="w-full p-2 bg-slate-900 rounded-lg text-white text-sm outline-none border border-slate-700" placeholder="เป้า % ต่อปี" />
+                                        </div>
+                                        <button onClick={saveGoal} className="w-full bg-indigo-600 text-white font-bold py-2 rounded-lg text-sm hover:bg-indigo-500">บันทึกเป้าหมาย</button>
+                                    </div>
+                                ) : goalStatus ? (
+                                    <div className="fade-in bg-slate-900/50 p-4 rounded-2xl border border-slate-800">
+                                        <div className="text-[10px] text-slate-400 mb-1">เป้าหมายมูลค่าพอร์ต ณ ปัจจุบัน ({displayCurrency})</div>
+                                        <div className="text-xl font-black text-white">{fmtDisp(goalStatus.expectedValue)}</div>
+                                        <div className={`text-xs font-bold mt-2 pt-2 border-t border-slate-700/50 ${goalStatus.diff >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                            {goalStatus.diff >= 0 ? '🎉 ทะลุเป้าหมาย: ' : '⚠️ ยังขาดอีก: '} {fmtDisp(Math.abs(goalStatus.diff))}
+                                        </div>
+                                    </div>
+                                ) : <div className="text-xs text-slate-500 text-center py-4 bg-slate-900/50 rounded-2xl">กด "ตั้งค่า" เพื่อเริ่มวัดผลการเติบโต</div>}
+                            </div>
+
                         </div>
 
                         <div className="lg:col-span-8 space-y-6">
@@ -659,7 +758,7 @@
                                         <select value={dcaCurrency} onChange={e=>setDcaCurrency(e.target.value)} className="bg-slate-900 border border-slate-700 text-white rounded-xl px-2 text-xs outline-none">
                                             <option value="USD">USD</option><option value="THB">THB</option>
                                         </select>
-                                        <NumberInput value={dcaAmount} onChange={setDcaAmount} className="w-full p-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white text-sm font-bold outline-none" placeholder="ยอดเงิน DCA รายเดือน" />
+                                        <NumberInput value={dcaAmount} onChange={setDcaAmount} className="w-full p-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white text-sm font-bold outline-none focus:border-indigo-500" placeholder="ยอดเงิน DCA รายเดือน" />
                                     </div>
                                     {parseFloat(dcaAmount) > 0 && analysis.isWeightValid && (
                                         <div className="mt-3 space-y-1.5 fade-in max-h-24 overflow-y-auto pr-1 hide-scrollbar">
@@ -871,7 +970,7 @@
 
                                 <div className="relative h-[250px] md:h-[350px] w-full rounded-2xl overflow-hidden">
                                     {/* 🌟 Skeleton/Blurred Graph Placeholder */}
-                                    {chartData.length < 2 && (
+                                    {displayChartData.length < 2 && (
                                         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-slate-900/60 backdrop-blur-[3px] border border-slate-700 rounded-2xl">
                                             <div className="text-3xl mb-2">⏳</div>
                                             <div className="text-white font-bold text-sm">กราฟจำลองการเติบโต</div>
@@ -883,7 +982,7 @@
                                         <LineChart data={displayChartData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
                                             <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
                                             <XAxis dataKey="dateLabel" tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                                            <YAxis tickFormatter={compactDisp} tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                                            <YAxis tickFormatter={graphTickFormatter} tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
                                             <Tooltip 
                                                 formatter={(value, name) => [formatMoney(value, graphCurrency), name]}
                                                 contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.95)', border: 'none', borderRadius: '12px', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.5)', fontSize: '12px' }}
@@ -905,7 +1004,13 @@
         }
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
+        
+        // 🌟 ครอบแอปด้วย ErrorBoundary เพื่อป้องกันหน้าจอขาวแบบเงียบๆ
+        root.render(
+            <ErrorBoundary>
+                <MainApp />
+            </ErrorBoundary>
+        );
     </script>
 </body>
 </html>
