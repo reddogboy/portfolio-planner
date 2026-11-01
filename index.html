@@ -15,7 +15,7 @@
     <!-- Babel -->
     <script src="https://unpkg.com/@babel/standalone@7.23.6/babel.min.js"></script>
     
-    <!-- Recharts (เปลี่ยนเป็น .min.js เพื่อความเสถียรสูงสุด) -->
+    <!-- Recharts -->
     <script src="https://unpkg.com/react-is@18.2.0/umd/react-is.production.min.js"></script>
     <script src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
     <script src="https://unpkg.com/recharts@2.1.9/umd/Recharts.min.js"></script>
@@ -41,8 +41,6 @@
 
     <script type="text/babel">
         const { useState, useEffect, useMemo, useCallback } = React;
-        
-        // 🌟 ป้องกันแอปแครชถ้าระบบโหลด Recharts ไม่สำเร็จ
         const { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Legend } = window.Recharts || {};
 
         // =========================================================================
@@ -151,14 +149,13 @@
         // =========================================================================
         // ⚛️ MAIN APP COMPONENT
         // =========================================================================
-        function MainApp() {
+        function App() {
             const [user, setUser] = useState(null);
             const [isAuthChecking, setIsAuthChecking] = useState(true);
             const [isLoading, setIsLoading] = useState(false);
-            const [dataStatus, setDataStatus] = useState('LIVE'); // LIVE, CACHE, ERROR
+            const [dataStatus, setDataStatus] = useState('LIVE'); 
             const [fxRate, setFxRate] = useState(35.00); 
 
-            // Benchmarks (S&P500 & SET)
             const [benchmarks, setBenchmarks] = useState({ sp500: { price: 0, change: 0 }, set: { price: 0, change: 0 } });
 
             const [portfolios, setPortfolios] = useState({}); 
@@ -182,11 +179,8 @@
             }, [displayCurrency, fxRate]);
             
             const fmtDisp = useCallback((thbVal) => formatMoney(valDisp(thbVal), displayCurrency), [valDisp, displayCurrency]);
-
-            // 🌟 ใช้งานเฉพาะกับ YAxis กราฟ เพื่อป้องกันการหารค่าเงินซ้ำซ้อน
             const graphTickFormatter = useCallback((val) => formatCompact(val, graphCurrency), [graphCurrency]);
 
-            // Form States
             const [editId, setEditId] = useState(null);
             const [symbol, setSymbol] = useState("");
             const [avgPrice, setAvgPrice] = useState("");
@@ -195,7 +189,6 @@
             const [currency, setCurrency] = useState("USD");
             const [targetWeight, setTargetWeight] = useState("");
 
-            // 🌟 Smart Form Auto-Lock Logic
             const isAvgPriceFilled = avgPrice !== "";
             const isSharesFilled = shares !== "";
             const isTotalCostFilled = totalCost !== "";
@@ -248,6 +241,35 @@
             };
 
             // ---------------------------------------------------------
+            // 📈 SMART FORM LOGIC (ฟื้นคืนชีพฟังก์ชันที่หายไป!)
+            // ---------------------------------------------------------
+            const handleSharesChange = (val) => {
+                setShares(val);
+                const s = parseFloat(val); 
+                const p = parseFloat(avgPrice);
+                if (!isNaN(s) && !isNaN(p)) setTotalCost((s * p).toFixed(2));
+                else if (val === "") setTotalCost("");
+            };
+
+            const handleAvgPriceChange = (val) => {
+                setAvgPrice(val);
+                const p = parseFloat(val); 
+                const s = parseFloat(shares); 
+                const c = parseFloat(totalCost);
+                if (!isNaN(p) && !isNaN(s)) setTotalCost((s * p).toFixed(2));
+                else if (!isNaN(p) && !isNaN(c) && p !== 0) setShares((c / p).toFixed(4));
+            };
+
+            const handleTotalCostChange = (val) => {
+                setTotalCost(val);
+                const c = parseFloat(val); 
+                const p = parseFloat(avgPrice); 
+                const s = parseFloat(shares);
+                if (!isNaN(c) && !isNaN(p) && p !== 0) setShares((c / p).toFixed(4));
+                else if (!isNaN(c) && !isNaN(s) && s !== 0) setAvgPrice((c / s).toFixed(2));
+            };
+
+            // ---------------------------------------------------------
             // 🌐 MARKET DATA & BENCHMARKS FETCHING
             // ---------------------------------------------------------
             const fetchMarketData = useCallback(async () => {
@@ -261,7 +283,6 @@
                 let hasLiveError = false;
                 let newBenchmarks = { ...benchmarks };
 
-                // 1. อ่าน Cache จาก JSON (ถ้ามี)
                 try {
                     const localRes = await fetch('./prices.json');
                     if (localRes.ok) {
@@ -272,7 +293,6 @@
                     }
                 } catch (e) { console.log("Cache missed."); }
 
-                // 2. ฟังก์ชันดึงราคา Live + % Change (ทนทานการบล็อก)
                 const fetchLiveQuote = async (targetUrl) => {
                     const proxies = ['https://api.allorigins.win/raw?url=', 'https://api.codetabs.com/v1/proxy?quest=', 'https://corsproxy.io/?'];
                     for (let proxy of proxies) {
@@ -291,7 +311,6 @@
                     throw new Error("Proxy failed");
                 };
 
-                // 🌟 Fetch Benchmarks (S&P 500 & SET)
                 try {
                     const sp500Data = await fetchLiveQuote('https://query1.finance.yahoo.com/v8/finance/chart/^GSPC');
                     newBenchmarks.sp500 = sp500Data;
@@ -307,7 +326,6 @@
                     } catch (error) { hasLiveError = true; }
                 }
 
-                // วนลูปดึงราคาหุ้นในพอร์ต
                 for (let item of assets) {
                     const ticker = item.symbol.toUpperCase();
                     if (item.currency === 'THB' && !ticker.includes('.')) { 
@@ -321,7 +339,7 @@
                     } catch (err) {
                         hasLiveError = true;
                         if (localFetchedPrices[ticker]) {
-                            newPrices[ticker] = localFetchedPrices[ticker]; // Fallback to Cache
+                            newPrices[ticker] = localFetchedPrices[ticker];
                         }
                     }
                 }
@@ -337,7 +355,6 @@
 
             useEffect(() => { if(user && activePortId) fetchMarketData(); }, [user, activePortId]);
 
-            // Snapshot System
             useEffect(() => {
                 if (!isLoading && Object.keys(prices).length > 0 && activePortId && assets.length > 0) {
                     const todayStr = new Date().toISOString().split('T')[0];
@@ -795,7 +812,7 @@
                                     </button>
                                 </div>
 
-                                {/* 🌟 Mobile Cards View (Redesigned for Clarity) */}
+                                {/* 🌟 Mobile Cards View */}
                                 <div className="md:hidden flex flex-col gap-4 p-4 bg-slate-900/50">
                                     {analysis.rebalancePlan.length === 0 && <div className="text-center py-10 text-slate-500 text-xs">ยังไม่มีข้อมูลสินทรัพย์ในพอร์ตนี้</div>}
                                     {analysis.rebalancePlan.map(item => {
@@ -807,7 +824,6 @@
 
                                         return (
                                             <div key={item.id} className={`bg-slate-800 rounded-2xl overflow-hidden border ${editId === item.id ? 'border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.3)]' : 'border-slate-700'}`}>
-                                                {/* Header Section */}
                                                 <div className="p-4 pb-3 flex justify-between items-start">
                                                     <div>
                                                         <div className="font-black text-white text-2xl tracking-wide leading-none mb-1">{item.symbol}</div>
@@ -823,7 +839,6 @@
                                                     </div>
                                                 </div>
                                                 
-                                                {/* Details Section */}
                                                 <div className="grid grid-cols-2 gap-px bg-slate-700 mb-4 mx-4 rounded-xl overflow-hidden text-[10px]">
                                                     <div className="bg-slate-900 p-2">
                                                         <div className="text-slate-500 mb-0.5">ราคาเฉลี่ย</div>
@@ -835,22 +850,18 @@
                                                     </div>
                                                 </div>
 
-                                                {/* 🌟 Dual Mini Bar Chart (เปรียบเทียบสัดส่วน) */}
                                                 <div className="px-4 mb-4">
                                                     <div className="flex justify-between text-[10px] font-bold mb-1">
                                                         <span className="text-slate-400">สัดส่วนปัจจุบัน <span className="text-white ml-1">{formatPercent(item.currentWeight)}</span></span>
                                                         <span className="text-slate-400">เป้าหมาย <span className="text-blue-400 ml-1">{formatPercent(item.targetWeight)}</span></span>
                                                     </div>
                                                     <div className="w-full bg-slate-900 h-3 rounded-full overflow-hidden flex relative border border-slate-700">
-                                                        {/* แท่งเป้าหมาย (พื้นหลัง) */}
                                                         <div className="absolute top-0 bottom-0 left-0 bg-blue-900/30" style={{width: `${item.targetWeight}%`}}></div>
                                                         <div className="absolute top-0 bottom-0 border-r-2 border-blue-500 z-10" style={{width: `${item.targetWeight}%`}}></div>
-                                                        {/* แท่งปัจจุบัน (สีสว่าง) */}
                                                         <div className="bg-blue-400 h-full opacity-80" style={{ width: `${Math.min(item.currentWeight, 100)}%` }}></div>
                                                     </div>
                                                 </div>
 
-                                                {/* 🌟 Action Advice CTA Section */}
                                                 <div className={`p-4 flex justify-between items-center ${!analysis.isWeightValid ? 'bg-slate-900' : (isBuy ? 'bg-emerald-900/20 border-t border-emerald-900/50' : (isSell ? 'bg-rose-900/20 border-t border-rose-900/50' : 'bg-slate-900/50 border-t border-slate-700'))}`}>
                                                     <div>
                                                         <span className="block text-[9px] text-slate-400 uppercase tracking-wider mb-0.5">คำแนะนำจัดพอร์ต</span>
@@ -916,7 +927,6 @@
                                                                 <span className="text-slate-600 text-[10px]">➡</span>
                                                                 <span className="text-blue-400 bg-blue-900/30 px-1.5 py-0.5 rounded">{formatPercent(item.targetWeight)}</span>
                                                             </div>
-                                                            {/* Dual Mini Bar */}
                                                             <div className="w-full bg-slate-900 h-2 rounded-full overflow-hidden flex relative mx-auto border border-slate-700">
                                                                 <div className="absolute top-0 bottom-0 left-0 bg-blue-900/30" style={{width: `${item.targetWeight}%`}}></div>
                                                                 <div className="absolute top-0 bottom-0 border-r-2 border-blue-500 z-10" style={{width: `${item.targetWeight}%`}}></div>
@@ -1008,7 +1018,7 @@
         // 🌟 ครอบแอปด้วย ErrorBoundary เพื่อป้องกันหน้าจอขาวแบบเงียบๆ
         root.render(
             <ErrorBoundary>
-                <MainApp />
+                <App />
             </ErrorBoundary>
         );
     </script>
